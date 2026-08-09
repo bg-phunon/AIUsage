@@ -237,7 +237,7 @@ struct PopoverView: View {
                 HStack(spacing: 8) {
                     if let error = item.error { Text(error).font(.system(size: 10)).foregroundStyle(.red).lineLimit(2) }
                     else if item.local == true { Text("ในเครือข่ายตัวเอง · ไม่มีโควตา") }
-                    else if !item.isOfficial { Text("\(item.tokensText) · ยังไม่รู้เพดาน") }
+                    else if !item.isOfficial { Text(missingPercentReason(item, now: now)) }
                     else { Text("รีเซ็ต \(countdownText(to: item.resetAt, from: now))") }
                     if headlineCertainty == .atLeast { Text("· ใช้ต่อหลังเช็คล่าสุด") }
                     if let active = item.activeLimit { Text("· ชนลิมิต \(active)").foregroundStyle(.red) }
