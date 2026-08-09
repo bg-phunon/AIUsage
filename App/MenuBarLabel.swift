@@ -70,3 +70,38 @@ private func percentageLine(_ prefix: String, _ pct: Double?, _ certaintyValue: 
     let body = certaintyValue == .atLeast ? "≥\(number)%" : "\(number)%"
     return prefix + String(repeating: " ", count: max(1, 7 - prefix.count - body.count)) + body
 }
+
+/// ถังที่จะขึ้นแถบเมนู
+///
+/// ไม่ปักเลย = อัตโนมัติ เลือกตัวที่ใกล้ชนที่สุด — ไม่ต้องมีสวิตช์โหมดแยก
+/// เพราะ "ไม่ปัก" คืออัตโนมัติอยู่แล้วโดยธรรมชาติ
+func menuBarUnits(snapshot: UsageSnapshot, pinned: [String]) -> [UsageItem] {
+    let usable = snapshot.items.filter { $0.error == nil && $0.displayPct != nil }
+    let chosen = pinned.compactMap { id in usable.first { $0.id == id } }
+    if !chosen.isEmpty { return chosen }
+    // ปักไว้แต่หาไม่เจอแล้ว → ตกกลับไปอัตโนมัติ ดีกว่าโชว์แถบว่าง
+    return snapshot.worst.map { [$0] } ?? []
+}
+
+/// บรรทัดเดียวสำหรับตอนปักหลายถัง — โลโก้บอกว่าของใครอยู่แล้ว
+/// เลือกหน้าต่างที่เร่งด่วนกว่า เพราะมีที่ให้ตัวเลขเดียว
+func compactLine(_ item: UsageItem) -> String {
+    let useWeek = (item.weekPct ?? -1) >= (item.pct ?? -1)
+    let pct = useWeek ? item.weekPct : item.pct
+    let sure = certainty(confidence: useWeek ? (item.weekConfidence ?? item.confidence)
+                                             : item.confidence)
+    guard let pct, sure != .unknown else { return "—" }
+    return (sure == .atLeast ? "≥" : "") + "\(Int(pct.rounded()))%"
+}
+
+/// มีถังที่ไม่ได้ปักกำลังวิกฤตอยู่ไหม
+///
+/// ถ้าผู้ใช้ปัก Codex ไว้อย่างเดียวแล้ว Claude weekly พุ่งไป 96%
+/// เขาจะไม่รู้เลยเพราะเลือกที่จะไม่มองมัน — จุดแดงไม่แย่งที่และไม่เปลี่ยน
+/// สิ่งที่เขาเลือก แค่บอกว่าควรเปิดดู
+func hasUnpinnedCritical(snapshot: UsageSnapshot, pinned: [String]) -> Bool {
+    guard !pinned.isEmpty else { return false }
+    return snapshot.items.contains {
+        $0.error == nil && $0.severity == "critical" && !pinned.contains($0.id)
+    }
+}

@@ -91,7 +91,16 @@ struct UsageItem: Codable, Identifiable, Hashable {
     }
 
     var id: String { "\(group)/\(label)" }
-    var displayPct: Double? { pct ?? weekPct }
+    /// เลือกหน้าต่างที่เร่งด่วนกว่าเสมอ (ไม่ใช่แค่ 5h ถ้ามี) —
+    /// ถังที่ 5h ต่ำแต่ 7d ใกล้ชนลิมิตต้องขึ้นเป็น "แย่กว่า" ไม่ใช่ถูกกลบด้วยตัวเลข 5h ที่ดูสบายใจ
+    var displayPct: Double? {
+        switch (pct, weekPct) {
+        case let (p?, w?): return max(p, w)
+        case let (p?, nil): return p
+        case let (nil, w?): return w
+        case (nil, nil): return nil
+        }
+    }
     var isOfficial: Bool { pctSource == "official" }
 
     func dataAge(now: Date) -> TimeInterval? {

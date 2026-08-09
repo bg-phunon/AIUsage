@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Combine
 
 @main
 struct AIUsageApp: App {
@@ -14,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var runner: EngineRunner?
     private var lastWake = Date.distantPast
     private let model = UsageModel()
+    private var prefsObserver: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -24,7 +26,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover = NSPopover()
         popover.behavior = .transient
         popover.contentSize = NSSize(width: 380, height: 560)
-        popover.contentViewController = NSHostingController(rootView: PopoverView(model: model))
+        popover.contentViewController = NSHostingController(
+            rootView: PopoverView(model: model, prefs: model.prefs))
 
         if let script = EngineRunner.bundledScriptURL {
             runner = EngineRunner(scriptURL: script)
@@ -38,6 +41,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                name: .aiUsageRefreshRequested, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(settingsChanged),
                                                name: .aiUsageSettingsChanged, object: nil)
+        // Preferences เป็น ObservableObject คนละตัวกับ UsageModel — เปลี่ยนหมุดแล้วจะไม่ทำให้
+        // updateBar() ถูกเรียกเองจนกว่า timer 60 วิจะครบ ต้องสมัคร objectWillChange ตรงๆ
+        // (มันยิง *ก่อน* ค่าเปลี่ยน จึงต้อง async ไปอ่านค่าหลังเปลี่ยนแล้ว)
+        prefsObserver = model.prefs.objectWillChange.sink { [weak self] _ in
+            DispatchQueue.main.async { self?.updateBar() }
+        }
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.refresh() }
     }
@@ -65,9 +74,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateBar() {
-        let segments = menuBarSegments(snapshot: model.snapshot, now: Date(), wokeRecently: wokeRecently,
-                                       visibleGroups: model.visibleGroups)
         guard let button = statusItem.button else { return }
+        let snapshot = model.snapshot
+        let pinned = model.prefs.pinned
+
+        // ปักหมุดไว้ = ผู้ใช้เลือกเองว่าจะเห็นถังไหน แทนที่ตัวเลือกอัตโนมัติทั้งหมด
+        if !pinned.isEmpty {
+            let units = menuBarUnits(snapshot: snapshot, pinned: pinned)
+            let alert = hasUnpinnedCritical(snapshot: snapshot, pinned: pinned)
+            let snapshotAge = snapshot.generated == .distantPast
+                ? nil : Date().timeIntervalSince(snapshot.generated)
+            let state = freshness(snapshotAge: snapshotAge, wokeRecently: wokeRecently)
+
+            if units.count <= 1 {
+                let text = menuBarText(snapshot: snapshot, now: Date(), wokeRecently: wokeRecently)
+                button.attributedTitle = stackedTitle(text.top, text.bottom, alert: alert)
+                button.alphaValue = text.dimmed ? 0.55 : 1.0
+            } else {
+                let line = units.map(compactLine).joined(separator: "  ")
+                button.attributedTitle = singleTitle((alert ? "• " : "") + line)
+                button.alphaValue = state == .fresh ? 1.0 : 0.55
+            }
+            button.image = nil
+            return
+        }
+
+        // ไม่ปักเลย = อัตโนมัติ — โชว์ทุก provider ที่เลือกไว้ ทีละถังแยกไอคอน (ของเดิม)
+        let segments = menuBarSegments(snapshot: snapshot, now: Date(), wokeRecently: wokeRecently,
+                                       visibleGroups: model.visibleGroups)
         let title = NSMutableAttributedString()
         let font = NSFont.systemFont(ofSize: 11, weight: .medium)
         for (index, segment) in segments.enumerated() {
@@ -92,6 +126,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         button.attributedTitle = title
         button.image = nil
         button.alphaValue = 1.0
+    }
+
+    private func stackedTitle(_ top: String, _ bottom: String,
+                              alert: Bool) -> NSAttributedString {
+        let para = NSMutableParagraphStyle()
+        para.alignment = .right
+        para.maximumLineHeight = 10
+        return NSAttributedString(
+            string: (alert ? "• " : "") + top + "\n" + bottom,
+            attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .medium),
+                         .paragraphStyle: para,
+                         .foregroundColor: NSColor.labelColor])
+    }
+
+    private func singleTitle(_ line: String) -> NSAttributedString {
+        NSAttributedString(
+            string: line,
+            attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium),
+                         .foregroundColor: NSColor.labelColor])
     }
 
     @objc private func togglePopover() {
@@ -141,6 +194,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 final class UsageModel: ObservableObject {
+    // Preferences เป็น ObservableObject แยกต่างหาก จงใจไม่ทำเครื่องหมาย @Published ตรงนี้ —
+    // view ที่ต้องวาดใหม่ตามหมุด ต้อง @ObservedObject var prefs: Preferences เอง (ดู PopoverView)
+    // และ AppDelegate ต้องสมัคร prefs.objectWillChange เองสำหรับแถบเมนู
+    let prefs = Preferences()
     @Published var snapshot: UsageSnapshot = .load()
     @Published var engineError: String?
     @Published var wokeRecently = false

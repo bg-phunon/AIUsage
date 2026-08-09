@@ -27,6 +27,9 @@ extension Notification.Name {
 
 struct PopoverView: View {
     @ObservedObject var model: UsageModel
+    // ต้องผูกตรงนี้ด้วย @ObservedObject แยกจาก model — Preferences เป็น ObservableObject
+    // คนละตัว ถ้า view ดูแค่ model ปุ่มหมุดจะกดแล้วค่าบันทึกจริงแต่จอไม่วาดใหม่
+    @ObservedObject var prefs: Preferences
     @State private var now = Date()
     private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -60,6 +63,18 @@ struct PopoverView: View {
             } else if snapshotState != .fresh, let age = snapshotAge {
                 strip(icon: "arrow.clockwise", text: "อัปเดตล่าสุด \(ageText(age)) ที่แล้ว",
                       tint: snapshotState == .dead ? .red : .orange)
+            }
+            if !prefs.pinned.isEmpty {
+                HStack(spacing: 8) {
+                    Text("แถบเมนู: ปักหมุดไว้ \(prefs.pinned.count)")
+                    Spacer()
+                    Button("ยกเลิกทั้งหมด → อัตโนมัติ") { prefs.clearPins() }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.tint)
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 14).padding(.vertical, 8)
             }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
@@ -181,43 +196,46 @@ struct PopoverView: View {
         let sessionCertainty = item.error == nil ? certainty(confidence: item.confidence) : .unknown
         let weekCertainty = item.error == nil ? certainty(confidence: item.weekConfidence ?? item.confidence) : .unknown
         let headlineCertainty = item.pct == nil ? weekCertainty : sessionCertainty
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                providerMark(item.group)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(item.group).font(.system(size: 12, weight: .semibold))
-                    Text(item.label).font(.system(size: 10)).foregroundStyle(.secondary)
+        HStack(alignment: .top, spacing: 8) {
+            pinButton(item)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 6) {
+                    providerMark(item.group)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(item.group).font(.system(size: 12, weight: .semibold))
+                        Text(item.label).font(.system(size: 10)).foregroundStyle(.secondary)
+                    }
+                    if let plan = item.plan { Text(plan).font(.system(size: 9, weight: .medium))
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(providerColor(item.group).opacity(0.15)).clipShape(Capsule()) }
+                    Spacer()
+                    if item.error != nil {
+                        Text("พัง").font(.system(size: 10, weight: .semibold)).foregroundStyle(.red)
+                    } else {
+                        Text(pctText(item.pct ?? item.weekPct, headlineCertainty))
+                            .font(.system(size: 12, weight: .medium)).monospacedDigit()
+                    }
                 }
-                if let plan = item.plan { Text(plan).font(.system(size: 9, weight: .medium))
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(providerColor(item.group).opacity(0.15)).clipShape(Capsule()) }
-                Spacer()
-                if item.error != nil {
-                    Text("พัง").font(.system(size: 10, weight: .semibold)).foregroundStyle(.red)
-                } else {
-                    Text(pctText(item.pct ?? item.weekPct, headlineCertainty))
-                        .font(.system(size: 12, weight: .medium)).monospacedDigit()
-                }
+                usageBar(label: "5h", pct: item.pct, tint: item.tint, sure: sessionCertainty)
+                usageBar(label: "7d", pct: item.weekPct, tint: item.tint, sure: weekCertainty)
+                HStack(spacing: 8) {
+                    if let error = item.error { Text(error).font(.system(size: 10)).foregroundStyle(.red).lineLimit(2) }
+                    else if item.local == true { Text("ในเครือข่ายตัวเอง · ไม่มีโควตา") }
+                    else if !item.isOfficial { Text("\(item.tokensText) · ยังไม่รู้เพดาน") }
+                    else { Text("รีเซ็ต \(countdownText(to: item.resetAt, from: now))") }
+                    if headlineCertainty == .atLeast { Text("· ใช้ต่อหลังเช็คล่าสุด") }
+                    if let active = item.activeLimit { Text("· ชนลิมิต \(active)").foregroundStyle(.red) }
+                    if item.costKnown, let weekCost = item.weekCost {
+                        Text("· " + (item.costKind == "notional" ? "มูลค่า" : "ใช้ไป")
+                             + " $" + String(format: "%.2f", weekCost) + " / 7d")
+                            .foregroundStyle(.secondary)
+                    } else if item.weekTokens > 0 && item.local != true {
+                        Text("· ราคาไม่ทราบ")
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }.font(.system(size: 10)).foregroundStyle(.secondary)
             }
-            usageBar(label: "5h", pct: item.pct, tint: item.tint, sure: sessionCertainty)
-            usageBar(label: "7d", pct: item.weekPct, tint: item.tint, sure: weekCertainty)
-            HStack(spacing: 8) {
-                if let error = item.error { Text(error).font(.system(size: 10)).foregroundStyle(.red).lineLimit(2) }
-                else if item.local == true { Text("ในเครือข่ายตัวเอง · ไม่มีโควตา") }
-                else if !item.isOfficial { Text("\(item.tokensText) · ยังไม่รู้เพดาน") }
-                else { Text("รีเซ็ต \(countdownText(to: item.resetAt, from: now))") }
-                if headlineCertainty == .atLeast { Text("· ใช้ต่อหลังเช็คล่าสุด") }
-                if let active = item.activeLimit { Text("· ชนลิมิต \(active)").foregroundStyle(.red) }
-                if item.costKnown, let weekCost = item.weekCost {
-                    Text("· " + (item.costKind == "notional" ? "มูลค่า" : "ใช้ไป")
-                         + " $" + String(format: "%.2f", weekCost) + " / 7d")
-                        .foregroundStyle(.secondary)
-                } else if item.weekTokens > 0 && item.local != true {
-                    Text("· ราคาไม่ทราบ")
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-            }.font(.system(size: 10)).foregroundStyle(.secondary)
         }
         .padding(13)
         .background(cardFill(for: item), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -227,6 +245,23 @@ struct PopoverView: View {
         }
         .shadow(color: model.designStyle == .native ? Color.black.opacity(0.07) : .clear,
                 radius: 7, y: 2)
+    }
+
+    private func pinButton(_ item: UsageItem) -> some View {
+        Button {
+            prefs.togglePin(item.id)
+        } label: {
+            Image(systemName: prefs.pinned.contains(item.id) ? "pin.fill" : "pin")
+                .font(.system(size: 11))
+                .frame(width: 20, height: 20)
+        }
+        .buttonStyle(.plain)
+        .disabled(!prefs.canPin(item.id))
+        .help(prefs.pinned.contains(item.id)
+              ? "เอาออกจากแถบเมนู"
+              : (prefs.canPin(item.id)
+                 ? "ปักหมุดขึ้นแถบเมนู"
+                 : "ปักได้สูงสุด \(prefs.maxPins) ถัง"))
     }
 
     private func cardFill(for item: UsageItem) -> Color {
