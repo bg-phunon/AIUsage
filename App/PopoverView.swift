@@ -56,6 +56,13 @@ struct PopoverView: View {
         displayItems.compactMap { effectiveWeekCost($0, price: prefs.prices[$0.id]) }.reduce(0, +)
     }
 
+    /// ทุกบาทในยอดรวมมาจากบัญชีที่จ่ายเหมาไปแล้วหรือเปล่า
+    private var allNotional: Bool {
+        displayItems
+            .filter { effectiveWeekCost($0, price: prefs.prices[$0.id]) ?? 0 > 0 }
+            .allSatisfy { $0.costKind == "notional" && prefs.prices[$0.id] == nil }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
@@ -171,7 +178,13 @@ struct PopoverView: View {
             }
             Spacer()
             if knownWeeklyCost > 0 {
-                Text("ประมาณ $" + String(format: "%.2f", knownWeeklyCost) + " / 7d")
+                // ยอดนี้ส่วนใหญ่มาจากบัญชี subscription ที่จ่ายเหมาไปแล้ว
+                // เรียกว่า "ประมาณ" ทำให้อ่านเป็นบิล ทั้งที่ไม่ได้จ่ายเพิ่มสักบาท
+                Text((allNotional ? "มูลค่า" : "รวม") + " $"
+                     + String(format: "%.2f", knownWeeklyCost) + " / 7d")
+                    .help(allNotional
+                          ? "มูลค่าถ้ายิงผ่าน API ไม่ใช่เงินที่จ่ายจริง — บัญชี subscription จ่ายเหมาไปแล้ว"
+                          : "รวมทั้งมูลค่าของบัญชีเหมาและเงินที่ไหลจริงของถังจ่ายตามใช้")
             }
             Text("\(displayItems.count) รายการ")
         }
@@ -234,23 +247,42 @@ struct PopoverView: View {
                 }
                 usageBar(label: "5h", pct: item.pct, tint: item.tint, sure: sessionCertainty)
                 usageBar(label: "7d", pct: item.weekPct, tint: item.tint, sure: weekCertainty)
-                HStack(spacing: 8) {
-                    if let error = item.error { Text(error).font(.system(size: 10)).foregroundStyle(.red).lineLimit(2) }
-                    else if item.local == true { Text("ในเครือข่ายตัวเอง · ไม่มีโควตา") }
-                    else if !item.isOfficial { Text(missingPercentReason(item, now: now)) }
-                    else { Text("รีเซ็ต \(countdownText(to: item.resetAt, from: now))") }
-                    if headlineCertainty == .atLeast { Text("· ใช้ต่อหลังเช็คล่าสุด") }
-                    if let active = item.activeLimit { Text("· ชนลิมิต \(active)").foregroundStyle(.red) }
+                // ข้อเท็จจริงซ้าย · เงินขวา — คนละประเภทกัน อย่าให้ไหลปนกันในประโยคเดียว
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    if let error = item.error {
+                        Text(error).foregroundStyle(.red).lineLimit(2)
+                    } else if item.local == true {
+                        Text("ในเครือข่ายตัวเอง · ไม่มีโควตา")
+                    } else if !item.isOfficial {
+                        Text(primaryDetail(item))
+                    } else {
+                        Text("รีเซ็ต \(countdownText(to: item.resetAt, from: now))")
+                    }
+                    Spacer(minLength: 8)
                     if let label = costLabel(item, price: prefs.prices[item.id]) {
                         // nil แปลว่าไม่รู้ราคา — ห้ามแทนด้วย $0.00 เด็ดขาด (ดู costLabel)
-                        Text("· " + label)
-                            .foregroundStyle(.secondary)
+                        Text(label).monospacedDigit()
                     } else if item.weekTokens > 0 && item.local != true {
-                        Text("· ราคาไม่ทราบ")
-                            .foregroundStyle(.secondary)
+                        Text("ราคาไม่ทราบ")
                     }
-                    Spacer()
-                }.font(.system(size: 10)).foregroundStyle(.secondary)
+                }
+                .font(.system(size: 10)).foregroundStyle(.secondary)
+
+                // ป้ายสถานะผิดปกติ — เป็นก้อนแยก จะได้ไม่ลากประโยคยาวไปตัดบรรทัดมั่ว
+                let flags = statusFlags(item)
+                if !flags.isEmpty {
+                    HStack(spacing: 5) {
+                        ForEach(flags, id: \.text) { flag in
+                            Text(flag.text)
+                                .font(.system(size: 9.5, weight: .medium))
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(flag.tint.opacity(0.16), in: Capsule())
+                                .foregroundStyle(flag.tint)
+                                .help(flag.hint)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                }
             }
         }
         .padding(13)
@@ -318,6 +350,36 @@ struct PopoverView: View {
     private func pctText(_ pct: Double?, _ certaintyValue: Certainty) -> String {
         guard let pct, certaintyValue != .unknown else { return "—" }
         return (certaintyValue == .atLeast ? "≥" : "") + String(format: "%.0f%%", pct)
+    }
+
+
+    /// ข้อความหลักฝั่งซ้าย — สั้นที่สุดที่ยังบอกอะไรได้
+    private func primaryDetail(_ item: UsageItem) -> String {
+        item.tokens > 0 ? item.tokensText : "ยังไม่เริ่มบล็อกใหม่"
+    }
+
+    private struct StatusFlag { let text: String; let tint: Color; let hint: String }
+
+    /// เฉพาะเรื่องที่ผิดปกติ — ปกติแล้วต้องว่าง ถ้าขึ้นทุกแถวผู้ใช้จะเลิกอ่าน
+    private func statusFlags(_ item: UsageItem) -> [StatusFlag] {
+        var flags: [StatusFlag] = []
+        if let active = item.activeLimit {
+            flags.append(StatusFlag(text: "ชนลิมิต \(active)", tint: .red,
+                                    hint: "โควตานี้เต็มแล้ว รอรีเซ็ตหรือสลับโมเดล"))
+        }
+        // รู้ว่ามีเพดาน แต่แคชเก่าจนหน้าต่างหมุนไปแล้ว — เปิด /usage ครั้งเดียวก็กลับมามีตัวเลข
+        if !item.isOfficial, let age = item.dataAge(now: now) {
+            flags.append(StatusFlag(text: "โควตาเก่า \(ageText(age))", tint: .orange,
+                                    hint: "เปิด /usage ใน Claude Code แล้วรอไม่เกิน 60 วินาที"))
+        } else if !item.isOfficial, item.local != true, item.error == nil {
+            flags.append(StatusFlag(text: "ยังไม่รู้เพดาน", tint: .secondary,
+                                    hint: "ผู้ให้บริการนี้ไม่ได้บอกโควตาคงเหลือมาในไฟล์ใดๆ"))
+        }
+        if certainty(confidence: item.confidence) == .atLeast {
+            flags.append(StatusFlag(text: "≥ ใช้ต่อหลังเช็ค", tint: .secondary,
+                                    hint: "มีการใช้งานหลังตัวเลขล่าสุด ของจริงสูงกว่าที่แสดง"))
+        }
+        return flags
     }
 
     private func usageBar(label: String, pct: Double?, tint: Color, sure: Certainty) -> some View {
