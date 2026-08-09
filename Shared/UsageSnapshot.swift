@@ -1,0 +1,164 @@
+import Foundation
+import SwiftUI
+
+struct UsageItem: Codable, Identifiable, Hashable {
+    var group: String
+    var label: String
+    var window: String
+    var pct: Double?
+    var tokens: Int
+    /// nil = ไม่รู้ราคาของถังนี้ · ห้ามแทนด้วย 0 เพราะศูนย์อ่านเป็น "ฟรี"
+    var cost: Double?
+    var calls: Int
+    var resetAt: Date?
+    var weekTokens: Int
+    var weekCost: Double?
+    var weekPct: Double?
+    var profile: String?
+    var plan: String?
+    var pctSource: String?
+    var confidence: String?
+    var weekConfidence: String? = nil
+    var dataFetchedAt: Date?
+    var severity: String?
+    var activeLimit: String?
+    var error: String?
+    var local: Bool?
+    var costKnown: Bool = false
+    var costCurrency: String? = nil
+    var costSource: String? = nil
+    var costEstimated: Bool = false
+    /// "notional" = จ่ายเหมาไปแล้ว ตัวเลขคือมูลค่าถ้ายิงผ่าน API ไม่ใช่บิล
+    var costKind: String? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case group, label, window, pct, tokens, cost, calls, resetAt, weekTokens, weekCost, weekPct
+        case profile, plan, pctSource, confidence, weekConfidence, dataFetchedAt, severity
+        case activeLimit, error, local, costKnown, costCurrency, costSource, costEstimated, costKind
+    }
+
+    /// ตัวสร้างแบบระบุเอง — struct ที่มี init(from:) จะไม่ได้ memberwise init อัตโนมัติ
+    /// ใส่ค่าเริ่มต้นให้ฟิลด์ตามสัญญาไว้ เพิ่มฟิลด์ใหม่แล้ว test เดิมจะได้ไม่พัง
+    init(group: String, label: String, window: String, pct: Double? = nil,
+         tokens: Int = 0, cost: Double? = nil, calls: Int = 0, resetAt: Date? = nil,
+         weekTokens: Int = 0, weekCost: Double? = nil, weekPct: Double? = nil,
+         profile: String? = nil, plan: String? = nil, pctSource: String? = nil,
+         confidence: String? = nil, weekConfidence: String? = nil,
+         dataFetchedAt: Date? = nil, severity: String? = nil, activeLimit: String? = nil,
+         error: String? = nil, local: Bool? = nil, costKnown: Bool = false,
+         costCurrency: String? = nil, costSource: String? = nil,
+         costEstimated: Bool = false, costKind: String? = nil) {
+        self.group = group; self.label = label; self.window = window; self.pct = pct
+        self.tokens = tokens; self.cost = cost; self.calls = calls; self.resetAt = resetAt
+        self.weekTokens = weekTokens; self.weekCost = weekCost; self.weekPct = weekPct
+        self.profile = profile; self.plan = plan; self.pctSource = pctSource
+        self.confidence = confidence; self.weekConfidence = weekConfidence
+        self.dataFetchedAt = dataFetchedAt; self.severity = severity
+        self.activeLimit = activeLimit; self.error = error; self.local = local
+        self.costKnown = costKnown; self.costCurrency = costCurrency
+        self.costSource = costSource; self.costEstimated = costEstimated
+        self.costKind = costKind
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        group = try c.decode(String.self, forKey: .group)
+        label = try c.decode(String.self, forKey: .label)
+        window = try c.decode(String.self, forKey: .window)
+        pct = try c.decodeIfPresent(Double.self, forKey: .pct)
+        tokens = try c.decode(Int.self, forKey: .tokens)
+        cost = try c.decodeIfPresent(Double.self, forKey: .cost)
+        calls = try c.decode(Int.self, forKey: .calls)
+        resetAt = try c.decodeIfPresent(Date.self, forKey: .resetAt)
+        weekTokens = try c.decode(Int.self, forKey: .weekTokens)
+        weekCost = try c.decodeIfPresent(Double.self, forKey: .weekCost)
+        weekPct = try c.decodeIfPresent(Double.self, forKey: .weekPct)
+        profile = try c.decodeIfPresent(String.self, forKey: .profile)
+        plan = try c.decodeIfPresent(String.self, forKey: .plan)
+        pctSource = try c.decodeIfPresent(String.self, forKey: .pctSource)
+        confidence = try c.decodeIfPresent(String.self, forKey: .confidence)
+        weekConfidence = try c.decodeIfPresent(String.self, forKey: .weekConfidence)
+        dataFetchedAt = try c.decodeIfPresent(Date.self, forKey: .dataFetchedAt)
+        severity = try c.decodeIfPresent(String.self, forKey: .severity)
+        activeLimit = try c.decodeIfPresent(String.self, forKey: .activeLimit)
+        error = try c.decodeIfPresent(String.self, forKey: .error)
+        local = try c.decodeIfPresent(Bool.self, forKey: .local)
+        costKnown = try c.decodeIfPresent(Bool.self, forKey: .costKnown) ?? false
+        costCurrency = try c.decodeIfPresent(String.self, forKey: .costCurrency)
+        costSource = try c.decodeIfPresent(String.self, forKey: .costSource)
+        costEstimated = try c.decodeIfPresent(Bool.self, forKey: .costEstimated) ?? false
+        costKind = try c.decodeIfPresent(String.self, forKey: .costKind)
+    }
+
+    var id: String { "\(group)/\(label)" }
+    var displayPct: Double? { pct ?? weekPct }
+    var isOfficial: Bool { pctSource == "official" }
+
+    func dataAge(now: Date) -> TimeInterval? {
+        guard let fetched = dataFetchedAt else { return nil }
+        return now.timeIntervalSince(fetched)
+    }
+
+    var tokensText: String {
+        if tokens >= 1_000_000 { return String(format: "%.2fM", Double(tokens) / 1_000_000) }
+        if tokens >= 1_000 { return String(format: "%.0fk", Double(tokens) / 1_000) }
+        return "\(tokens)"
+    }
+
+    var tint: Color {
+        if error != nil { return .secondary }
+        guard let p = displayPct else { return .secondary }
+        if p >= 90 { return Color(red: 0.90, green: 0.33, blue: 0.29) }
+        if p >= 70 { return Color(red: 0.89, green: 0.66, blue: 0.23) }
+        return Color(red: 0.30, green: 0.76, blue: 0.54)
+    }
+}
+
+struct UsageSnapshot: Codable {
+    var generated: Date
+    var items: [UsageItem]
+
+    static let empty = UsageSnapshot(generated: .distantPast, items: [])
+
+    static var fileURL: URL {
+        URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Library/Application Support/AIUsage/snapshot.json")
+    }
+
+    static func decoder() -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { value in
+            let raw = try value.singleValueContainer().decode(String.self)
+            let iso = ISO8601DateFormatter()
+            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = iso.date(from: raw) { return date }
+            iso.formatOptions = [.withInternetDateTime]
+            return iso.date(from: raw) ?? Date()
+        }
+        return decoder
+    }
+
+    static func decode(from data: Data) -> UsageSnapshot? {
+        try? decoder().decode(UsageSnapshot.self, from: data)
+    }
+
+    static func load() -> UsageSnapshot {
+        guard let data = try? Data(contentsOf: fileURL) else { return .empty }
+        return decode(from: data) ?? .empty
+    }
+
+    var worst: UsageItem? {
+        items.filter { $0.error == nil && $0.displayPct != nil }
+            .max { ($0.displayPct ?? 0) < ($1.displayPct ?? 0) }
+    }
+}
+
+func countdownText(to date: Date?, from now: Date) -> String {
+    guard let date else { return "—" }
+    let secs = Int(date.timeIntervalSince(now))
+    if secs <= 0 { return "รีเซ็ตแล้ว" }
+    let d = secs / 86400, h = (secs % 86400) / 3600, m = (secs % 3600) / 60
+    if d > 0 { return "\(d)วัน \(h)ชม." }
+    if h > 0 { return "\(h)ชม. \(m)น." }
+    return "\(m)น."
+}

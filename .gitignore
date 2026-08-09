@@ -1,0 +1,6 @@
+build/
+AIUsage.xcodeproj/
+__pycache__/
+*.pyc
+.DS_Store
+*.bak-*

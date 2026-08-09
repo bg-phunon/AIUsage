@@ -1,0 +1,52 @@
+name: AIUsage
+options:
+  bundleIdPrefix: com.local
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_HARDENED_RUNTIME: NO
+    ENABLE_APP_SANDBOX: NO
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  AIUsage:
+    type: application
+    platform: macOS
+    sources:
+      - App
+      - Shared
+      - path: Assets
+        buildPhase: resources
+      - path: engine
+        buildPhase: resources
+        type: folder
+      - path: ai-usage.60s.py
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.local.aiusage
+        PRODUCT_NAME: AIUsage
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: AI Usage
+        INFOPLIST_KEY_LSUIElement: YES
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        COMBINE_HIDPI_IMAGES: YES
+
+  AIUsageTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - Tests
+    settings:
+      base:
+        # ไม่มีบรรทัดนี้ xcodebuild test จะพังตั้งแต่ code sign
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.local.aiusage.tests
+    dependencies:
+      - target: AIUsage

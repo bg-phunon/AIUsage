@@ -1,0 +1,66 @@
+import json
+import os
+import sys
+import tempfile
+import unittest
+from datetime import datetime, timedelta, timezone
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from aiusage import utilization as u
+
+T0 = datetime(2026, 8, 7, 6, 38, 6, tzinfo=timezone.utc)
+SAMPLE = {"cachedUsageUtilization": {
+    "fetchedAtMs": int(T0.timestamp() * 1000),
+    "utilization": {"limits": [
+        {"kind": "session", "percent": 5, "severity": "normal",
+         "resets_at": "2026-08-07T07:10:00.238547+00:00", "scope": None, "is_active": False},
+        {"kind": "weekly_all", "percent": 96, "severity": "critical",
+         "resets_at": "2026-08-08T20:00:00.238567+00:00", "scope": None, "is_active": False},
+        {"kind": "weekly_scoped", "percent": 100, "severity": "critical",
+         "resets_at": "2026-08-08T20:00:00.238771+00:00",
+         "scope": {"model": {"display_name": "Fable"}}, "is_active": True},
+    ]}}}
+
+
+class ReadUtilizationTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = os.path.join(self.tmp.name, "acct")
+        os.makedirs(self.dir)
+        with open(os.path.join(self.dir, ".claude.json"), "w", encoding="utf-8") as f:
+            json.dump(SAMPLE, f)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_reads_windows_and_metadata(self):
+        value = u.read_utilization(self.dir)
+        self.assertEqual(value.fetched_at, T0)
+        self.assertEqual([w.kind for w in value.windows], ["session", "weekly_all", "weekly_scoped"])
+        self.assertEqual(value.windows[1].percent, 96)
+        self.assertEqual(value.windows[2].scope, "Fable")
+        self.assertTrue(value.windows[2].is_active)
+        self.assertIsNotNone(value.windows[0].resets_at.tzinfo)
+
+    def test_sibling_and_invalid_paths(self):
+        alt = os.path.join(self.tmp.name, "other")
+        with open(alt + ".json", "w", encoding="utf-8") as f:
+            json.dump(SAMPLE, f)
+        self.assertIsNotNone(u.read_utilization(alt))
+        self.assertIsNone(u.read_utilization("/nonexistent/zzz"))
+
+
+class ConfidenceTest(unittest.TestCase):
+    def setUp(self):
+        self.win = u.Window("session", 42.0, datetime(2026, 8, 7, 7, 10, tzinfo=timezone.utc), "normal", None, False)
+
+    def test_confidence_states(self):
+        reset = self.win.resets_at
+        self.assertEqual(u.window_confidence(self.win, T0, None, reset + timedelta(hours=2)), u.CONFIRMED_ZERO)
+        self.assertEqual(u.window_confidence(self.win, T0, reset + timedelta(minutes=30), reset + timedelta(hours=2)), u.UNSURE)
+        self.assertEqual(u.window_confidence(self.win, T0, T0 + timedelta(minutes=10), T0 + timedelta(minutes=20)), u.LOWER_BOUND)
+        self.assertEqual(u.window_confidence(self.win, T0, None, T0 + timedelta(minutes=7)), u.VALID)
+
+
+if __name__ == "__main__":
+    unittest.main()
