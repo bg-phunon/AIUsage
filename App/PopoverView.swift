@@ -43,6 +43,7 @@ struct PopoverView: View {
 
     private var displayItems: [UsageItem] {
         model.snapshot.items.filter { item in
+            guard !prefs.hidden.contains(item.id) else { return false }
             guard item.group != "กรอกเอง" else { return false }
             if item.group == "ยังไม่รู้จัก" {
                 return item.tokens > 0 || item.weekTokens > 0 || item.error != nil
@@ -52,7 +53,7 @@ struct PopoverView: View {
     }
 
     private var knownWeeklyCost: Double {
-        displayItems.compactMap { $0.costKnown ? $0.weekCost : nil }.reduce(0, +)
+        displayItems.compactMap { effectiveWeekCost($0, price: prefs.prices[$0.id]) }.reduce(0, +)
     }
 
     var body: some View {
@@ -85,6 +86,13 @@ struct PopoverView: View {
                     }
                 }.padding(14)
             }
+            Divider()
+            HStack {
+                Button("ตั้งค่า…") { model.showSettings = true }
+                    .buttonStyle(.plain).font(.system(size: 11))
+                Spacer()
+            }
+            .padding(.horizontal, 14).padding(.vertical, 8)
             footer
         }
         .frame(width: 380, height: 560)
@@ -97,6 +105,14 @@ struct PopoverView: View {
         }
         .sheet(isPresented: $model.settingsPresented) {
             ProviderSettingsView(model: model)
+        }
+        .sheet(isPresented: $model.showSettings) {
+            VStack(spacing: 0) {
+                SettingsView(model: model, prefs: prefs)
+                Divider()
+                HStack { Spacer(); Button("เสร็จ") { model.showSettings = false } }
+                    .padding(10)
+            }
         }
         .onReceive(tick) { now = $0 }
     }
@@ -225,9 +241,9 @@ struct PopoverView: View {
                     else { Text("รีเซ็ต \(countdownText(to: item.resetAt, from: now))") }
                     if headlineCertainty == .atLeast { Text("· ใช้ต่อหลังเช็คล่าสุด") }
                     if let active = item.activeLimit { Text("· ชนลิมิต \(active)").foregroundStyle(.red) }
-                    if item.costKnown, let weekCost = item.weekCost {
-                        Text("· " + (item.costKind == "notional" ? "มูลค่า" : "ใช้ไป")
-                             + " $" + String(format: "%.2f", weekCost) + " / 7d")
+                    if let label = costLabel(item, price: prefs.prices[item.id]) {
+                        // nil แปลว่าไม่รู้ราคา — ห้ามแทนด้วย $0.00 เด็ดขาด (ดู costLabel)
+                        Text("· " + label)
                             .foregroundStyle(.secondary)
                     } else if item.weekTokens > 0 && item.local != true {
                         Text("· ราคาไม่ทราบ")

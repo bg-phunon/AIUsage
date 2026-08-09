@@ -202,6 +202,10 @@ final class UsageModel: ObservableObject {
     @Published var engineError: String?
     @Published var wokeRecently = false
     @Published var settingsPresented = false
+    // แยกจาก settingsPresented เพราะเปิดหน้าคนละหน้า — settingsPresented เปิด
+    // ProviderSettingsView (รูปแบบหน้าตา + provider บนแถบเมนู) ส่วนตัวนี้เปิด
+    // SettingsView (แสดง/ซ่อนถัง + ใส่ราคาเอง)
+    @Published var showSettings = false
     @Published var visibleGroups: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "visibleMenuBarProviders") ?? ["Claude Code", "Qwen Cloud", "GLM", "Codex"])
     @Published var designStyle: DesignStyle = DesignStyle(rawValue: UserDefaults.standard.string(forKey: "designStyle") ?? "darkGlass") ?? .darkGlass
 }
