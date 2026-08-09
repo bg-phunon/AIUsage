@@ -1,0 +1,100 @@
+import XCTest
+@testable import AIUsage
+
+final class PreferencesTests: XCTestCase {
+    private var defaults: UserDefaults!
+    private var suiteName: String!
+
+    override func setUp() {
+        super.setUp()
+        suiteName = "aiusage.tests.\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: suiteName)
+    }
+
+    override func tearDown() {
+        defaults.removePersistentDomain(forName: suiteName)
+        super.tearDown()
+    }
+
+    func testStartsEmpty() {
+        let prefs = Preferences(defaults: defaults)
+        XCTAssertTrue(prefs.pinned.isEmpty)
+        XCTAssertTrue(prefs.hidden.isEmpty)
+        XCTAssertTrue(prefs.prices.isEmpty)
+    }
+
+    func testPinToggleRoundTrips() {
+        let prefs = Preferences(defaults: defaults)
+        prefs.togglePin("Claude Code/default")
+        XCTAssertEqual(prefs.pinned, ["Claude Code/default"])
+        prefs.togglePin("Claude Code/default")
+        XCTAssertTrue(prefs.pinned.isEmpty)
+    }
+
+    func testPinOrderFollowsTheOrderTheUserPinned() {
+        let prefs = Preferences(defaults: defaults)
+        prefs.togglePin("Codex/Codex")
+        prefs.togglePin("Claude Code/default")
+        XCTAssertEqual(prefs.pinned, ["Codex/Codex", "Claude Code/default"])
+    }
+
+    /// แถบเมนูไม่ใช่ dashboard
+    func testCannotPinMoreThanFour() {
+        let prefs = Preferences(defaults: defaults)
+        for i in 0..<4 { prefs.togglePin("bucket/\(i)") }
+        XCTAssertFalse(prefs.canPin("bucket/5"))
+        prefs.togglePin("bucket/5")
+        XCTAssertEqual(prefs.pinned.count, 4, "ปักเกิน 4 ไม่ได้")
+    }
+
+    func testAlreadyPinnedCanAlwaysBeUnpinned() {
+        let prefs = Preferences(defaults: defaults)
+        for i in 0..<4 { prefs.togglePin("bucket/\(i)") }
+        XCTAssertTrue(prefs.canPin("bucket/0"), "ตัวที่ปักแล้วต้องกดปลดได้เสมอ")
+        prefs.togglePin("bucket/0")
+        XCTAssertEqual(prefs.pinned.count, 3)
+    }
+
+    func testHiddenRoundTrips() {
+        let prefs = Preferences(defaults: defaults)
+        prefs.setHidden("กรอกเอง/ChatGPT", true)
+        XCTAssertTrue(prefs.hidden.contains("กรอกเอง/ChatGPT"))
+        prefs.setHidden("กรอกเอง/ChatGPT", false)
+        XCTAssertFalse(prefs.hidden.contains("กรอกเอง/ChatGPT"))
+    }
+
+    func testPriceRoundTrips() {
+        let prefs = Preferences(defaults: defaults)
+        prefs.setPrice("GLM/default", Price(inputPerMillion: 0.6, outputPerMillion: 2.2))
+        XCTAssertEqual(prefs.prices["GLM/default"]?.outputPerMillion, 2.2)
+        prefs.setPrice("GLM/default", nil)
+        XCTAssertNil(prefs.prices["GLM/default"])
+    }
+
+    func testEverythingSurvivesRelaunch() {
+        let first = Preferences(defaults: defaults)
+        first.togglePin("Codex/Codex")
+        first.setHidden("spark/spark", true)
+        first.setPrice("GLM/default", Price(inputPerMillion: 0.6, outputPerMillion: 2.2))
+
+        let second = Preferences(defaults: defaults)
+        XCTAssertEqual(second.pinned, ["Codex/Codex"])
+        XCTAssertTrue(second.hidden.contains("spark/spark"))
+        XCTAssertEqual(second.prices["GLM/default"]?.inputPerMillion, 0.6)
+    }
+
+    func testClearPinsReturnsToAutomatic() {
+        let prefs = Preferences(defaults: defaults)
+        prefs.togglePin("Codex/Codex")
+        prefs.clearPins()
+        XCTAssertTrue(prefs.pinned.isEmpty, "ไม่ปักเลย = โหมดอัตโนมัติ")
+    }
+
+    func testCorruptStoredDataDoesNotCrash() {
+        defaults.set("ไม่ใช่ JSON", forKey: "prices")
+        defaults.set(42, forKey: "pinned")
+        let prefs = Preferences(defaults: defaults)
+        XCTAssertTrue(prefs.prices.isEmpty)
+        XCTAssertTrue(prefs.pinned.isEmpty)
+    }
+}
