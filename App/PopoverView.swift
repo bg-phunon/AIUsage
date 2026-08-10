@@ -154,11 +154,9 @@ struct PopoverView: View {
         switch model.designStyle {
         case .darkGlass:
             ZStack {
+                // ไม่มีก้อนแสงตกแต่ง — เคยลองแล้วมันกลบตัวเลขจนอ่านไม่ออก
+                // SwiftUI ไม่มี backdrop-filter ที่จะกรองมันให้จางเหมือนในเว็บ
                 VisualEffectBackground(material: .hudWindow)
-                ambientLight
-                // ม่านทึบทับแสง — SwiftUI ไม่มี backdrop-filter แบบเว็บ
-                // ถ้าไม่มีชั้นนี้ ก้อนแสงจะทะลุขึ้นมาเต็มๆ แล้วตัวหนังสืออ่านไม่ออก
-                Color.black.opacity(0.62)
             }
         case .native:
             VisualEffectBackground(material: .popover)
@@ -169,34 +167,6 @@ struct PopoverView: View {
         }
     }
 
-
-    /// แสงพื้นหลังสี่ก้อน — ถ้าไม่มีอะไรให้หักเห กระจกก็เป็นแค่สีเทาโปร่ง
-    private var ambientLight: some View {
-        GeometryReader { geo in
-            let w = geo.size.width, h = geo.size.height
-            ZStack {
-                blob(Color(red: 1.0, green: 0.56, blue: 0.37), w * 0.62)
-                    .offset(x: -w * 0.30, y: -h * 0.34)
-                blob(Color(red: 0.10, green: 0.81, blue: 0.78), w * 0.68)
-                    .offset(x: w * 0.34, y: -h * 0.24)
-                blob(Color(red: 0.56, green: 0.38, blue: 1.0), w * 0.66)
-                    .offset(x: w * 0.02, y: h * 0.36)
-                blob(Color(red: 1.0, green: 0.82, blue: 0.34), w * 0.34)
-                    .offset(x: w * 0.28, y: h * 0.44)
-                    .opacity(0.6)
-            }
-            .blur(radius: 72)
-            .opacity(0.28)
-        }
-        .allowsHitTesting(false)
-    }
-
-    private func blob(_ color: Color, _ size: CGFloat) -> some View {
-        Circle()
-            .fill(RadialGradient(colors: [color, color.opacity(0)],
-                                 center: .center, startRadius: 0, endRadius: size / 2))
-            .frame(width: size, height: size)
-    }
 
     private var footer: some View {
         HStack(spacing: 6) {
