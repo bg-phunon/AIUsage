@@ -9,8 +9,14 @@ struct MenuBarText: Equatable {
 struct MenuBarSegment: Equatable {
     let group: String
     let assetName: String
-    let value: String
+    /// เลขบน (5 ชม.) — สไตล์ OpenUsage: สองหน้าต่างซ้อนกันในความกว้างเดียว
+    let top: String
+    /// เลขล่าง (7 วัน) — nil เมื่อถังนั้นมีหน้าต่างเดียว แล้ว top จะถูกวาดกลางบรรทัด
+    let bottom: String?
     let color: String
+
+    /// เข้ากันได้กับโค้ดเก่าที่อ่านค่าเดียว
+    var value: String { bottom == nil ? top : "\(top)/\(bottom!)" }
 }
 
 /// แถบสั้นแบบ provider × เปอร์เซ็นต์ สำหรับพื้นที่ menu bar
@@ -26,20 +32,29 @@ func menuBarSegments(snapshot: UsageSnapshot, now: Date, wokeRecently: Bool,
         ("GLM", "zai", "#B087E8"),
         ("Codex", "openai", "#67C587"),
     ]
+    /// เลขของหน้าต่างเดียว — nil เมื่อไม่มีตัวเลขที่เชื่อได้ (ต่างจาก "0%" ที่เป็นตัวเลขจริง)
+    func windowText(_ pct: Double?, _ conf: String?) -> String? {
+        guard state != .dead, let pct, certainty(confidence: conf) != .unknown else { return nil }
+        return "\(Int(pct.rounded()))%"
+    }
     let all: [MenuBarSegment] = definitions.compactMap { group, symbol, color in
         let candidates = snapshot.items.filter {
             $0.group == group && $0.error == nil && $0.local != true && !hidden.contains($0.id)
         }
         guard let item = candidates.max(by: { ($0.displayPct ?? -1) < ($1.displayPct ?? -1) }) else { return nil }
-        let usesSession = item.pct != nil
-        let certaintyValue = certainty(confidence: usesSession ? item.confidence : (item.weekConfidence ?? item.confidence))
-        let value: String
-        if state == .dead || certaintyValue == .unknown || item.displayPct == nil {
-            value = "—"
-        } else {
-            value = "\(Int((item.displayPct ?? 0).rounded()))%"
+        let session = windowText(item.pct, item.confidence)
+        let week = windowText(item.weekPct, item.weekConfidence ?? item.confidence)
+        // ไม่มีเลขสักหน้าต่าง = ไม่ต้องกินที่บนแถบ — รายละเอียดยังอยู่ใน popover
+        switch (session, week) {
+        case (nil, nil):
+            return nil
+        case let (s?, w?):
+            return MenuBarSegment(group: group, assetName: symbol, top: s, bottom: w, color: color)
+        case let (s?, nil):
+            return MenuBarSegment(group: group, assetName: symbol, top: s, bottom: nil, color: color)
+        case let (nil, w?):
+            return MenuBarSegment(group: group, assetName: symbol, top: w, bottom: nil, color: color)
         }
-        return MenuBarSegment(group: group, assetName: symbol, value: value, color: color)
     }
     guard !pinned.isEmpty else { return all }
     // หมุดเป็น "ตัวกรอง" ไม่ใช่ "โหมดใหม่" — โลโก้และการจัดวางต้องเหมือนเดิมทุกอย่าง

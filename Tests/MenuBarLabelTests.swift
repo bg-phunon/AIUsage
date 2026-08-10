@@ -168,4 +168,33 @@ final class MenuBarLabelTests: XCTestCase {
                                        pinned: ["GLM/ที่หายไป"])
         XCTAssertEqual(segments.count, 1, "ปักไปที่ถังที่ไม่มีแล้ว ต้องไม่ได้แถบว่าง")
     }
+
+    // MARK: - เลขซ้อนสองบรรทัดแบบ OpenUsage
+
+    func testSegmentStacksBothWindows() {
+        var item = groupItem("Claude Code", "default", pct: 6)
+        item.weekPct = 100
+        item.weekConfidence = "valid"
+        let segments = menuBarSegments(snapshot: snapshot([item]), now: now,
+                                       wokeRecently: false, hidden: [], pinned: [])
+        XCTAssertEqual(segments[0].top, "6%")
+        XCTAssertEqual(segments[0].bottom, "100%")
+    }
+
+    func testSingleWindowSegmentHasNoBottomLine() {
+        let codex = groupItem("Codex", "Codex", pct: 99)   // Codex ไม่มี weekly
+        let segments = menuBarSegments(snapshot: snapshot([codex]), now: now,
+                                       wokeRecently: false, hidden: [], pinned: [])
+        XCTAssertEqual(segments[0].top, "99%")
+        XCTAssertNil(segments[0].bottom)
+    }
+
+    /// ขีด — บนแถบเมนูคือที่ที่เสียไปฟรีๆ ถังที่ไม่มีเลขให้ดูใน popover เอา
+    func testSegmentWithNoNumbersIsDroppedFromTheBar() {
+        let empty = UsageItem(group: "Qwen Cloud", label: "default", window: "5 ชม.")
+        let real = groupItem("Codex", "Codex", pct: 99)
+        let segments = menuBarSegments(snapshot: snapshot([empty, real]), now: now,
+                                       wokeRecently: false, hidden: [], pinned: [])
+        XCTAssertEqual(segments.map(\.group), ["Codex"])
+    }
 }

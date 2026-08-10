@@ -11,6 +11,7 @@ struct AIUsageApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
+    private var menuBarHosting: ClickThroughHostingView<MenuBarContent>?
     private var timer: Timer?
     private var runner: EngineRunner?
     private var lastWake = Date.distantPast
@@ -80,48 +81,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateBar() {
         guard let button = statusItem.button else { return }
         let snapshot = model.snapshot
-        // เส้นทางเดียว — ปักหมุดแค่กรองว่าจะโชว์ตัวไหน ไม่เปลี่ยนวิธีวาด
         let segments = menuBarSegments(snapshot: snapshot, now: Date(),
                                        wokeRecently: wokeRecently,
                                        hidden: model.prefs.hidden,
                                        pinned: model.prefs.pinned)
         let alert = hasUnpinnedCritical(snapshot: snapshot, pinned: model.prefs.pinned)
-        button.attributedTitle = segmentTitle(segments, alert: alert)
         let age = snapshot.generated == .distantPast
             ? nil : Date().timeIntervalSince(snapshot.generated)
-        button.alphaValue = freshness(snapshotAge: age, wokeRecently: wokeRecently) == .fresh
-            ? 1.0 : 0.55
-        button.image = nil
+        let dimmed = freshness(snapshotAge: age, wokeRecently: wokeRecently) != .fresh
+
+        let content = MenuBarContent(segments: segments, alert: alert, dimmed: dimmed)
+        if let hosting = menuBarHosting {
+            hosting.rootView = content
+        } else {
+            let hosting = ClickThroughHostingView(rootView: content)
+            hosting.translatesAutoresizingMaskIntoConstraints = false
+            button.addSubview(hosting)
+            NSLayoutConstraint.activate([
+                hosting.centerXAnchor.constraint(equalTo: button.centerXAnchor),
+                hosting.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+            ])
+            menuBarHosting = hosting
+            button.attributedTitle = NSAttributedString()   // ห้ามมีข้อความซ้อนใต้ view
+        }
+        // status item ไม่รู้ขนาดของ subview เอง ต้องบอกความกว้างตรงๆ
+        statusItem.length = menuBarHosting?.fittingSize.width ?? NSStatusItem.variableLength
     }
 
-    private func segmentTitle(_ segments: [MenuBarSegment], alert: Bool) -> NSAttributedString {
-        let title = NSMutableAttributedString()
-        let font = NSFont.systemFont(ofSize: 11, weight: .medium)
-        if alert {
-            title.append(NSAttributedString(string: "• ", attributes: [
-                .font: font, .foregroundColor: NSColor.systemRed]))
-        }
-        for (index, segment) in segments.enumerated() {
-            if index > 0 {
-                title.append(NSAttributedString(string: "   ", attributes: [.font: font]))
-            }
-            let imageURL = Bundle.main.url(forResource: segment.assetName, withExtension: "svg")
-            if let image = imageURL.flatMap(NSImage.init(contentsOf:)) {
-                image.size = NSSize(width: 13, height: 13)
-                image.isTemplate = true
-                let attachment = NSTextAttachment()
-                attachment.image = image
-                title.append(NSAttributedString(attachment: attachment))
-                title.append(NSAttributedString(string: " ", attributes: [.font: font]))
-            }
-            title.append(NSAttributedString(string: segment.value,
-                                             attributes: [.font: font, .foregroundColor: NSColor.labelColor]))
-        }
-        if segments.isEmpty {
-            title.append(NSAttributedString(string: "AI  —", attributes: [.font: font, .foregroundColor: NSColor.secondaryLabelColor]))
-        }
-        return title
-    }
 
     @objc private func togglePopover() {
         guard let button = statusItem.button else { return }
@@ -159,6 +145,72 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func terminate() { NSApplication.shared.terminate(nil) }
+}
+
+
+/// เนื้อหาบนแถบเมนู — วาดด้วย SwiftUI แทน NSAttributedString
+///
+/// เหตุผลที่ต้องเลิกใช้ attributed string: NSTextAttachment ไม่สน isTemplate
+/// โลโก้จึงถูกวาดเป็นสีดำดิบๆ จมหายไปกับวอลเปเปอร์ ในขณะที่ .renderingMode(.template)
+/// ของ SwiftUI ปรับสีตามธีมแถบเมนูให้ถูกต้อง
+struct MenuBarContent: View {
+    let segments: [MenuBarSegment]
+    let alert: Bool
+    let dimmed: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if alert {
+                Circle().fill(Color.red).frame(width: 4, height: 4)
+            }
+            if segments.isEmpty {
+                Text("AI —").font(.system(size: 11, weight: .medium)).opacity(0.5)
+            }
+            ForEach(segments, id: \.group) { segment in
+                HStack(spacing: 3) {
+                    if let image = Self.logo(segment.assetName) {
+                        Image(nsImage: image)
+                            .renderingMode(.template)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 12.5, height: 12.5)
+                    }
+                    if let bottom = segment.bottom {
+                        // สองหน้าต่างซ้อนกันแบบ OpenUsage — 5 ชม. บน 7 วันล่าง
+                        VStack(alignment: .leading, spacing: -0.5) {
+                            Text(segment.top)
+                            Text(bottom)
+                        }
+                        .font(.system(size: 8, weight: .semibold))
+                        .monospacedDigit()
+                    } else {
+                        Text(segment.top)
+                            .font(.system(size: 11, weight: .medium))
+                            .monospacedDigit()
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 6)
+        .opacity(dimmed ? 0.55 : 1)
+        .foregroundStyle(.primary)
+    }
+
+    private static var logoCache: [String: NSImage] = [:]
+    static func logo(_ name: String) -> NSImage? {
+        if let cached = logoCache[name] { return cached }
+        guard let url = Bundle.main.url(forResource: name, withExtension: "svg"),
+              let image = NSImage(contentsOf: url) else { return nil }
+        image.isTemplate = true
+        logoCache[name] = image
+        return image
+    }
+}
+
+/// hosting view ที่ปล่อยคลิกทะลุลงไปหาปุ่มของ status item
+/// ไม่งั้น SwiftUI จะกินคลิกเองแล้ว popover ไม่เปิด
+final class ClickThroughHostingView<Content: View>: NSHostingView<Content> {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 final class UsageModel: ObservableObject {
