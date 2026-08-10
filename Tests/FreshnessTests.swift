@@ -54,4 +54,21 @@ final class FreshnessTests: XCTestCase {
         XCTAssertTrue(missingPercentReason(stale, now: now).hasPrefix("18.18M"))
         XCTAssertTrue(missingPercentReason(unknown, now: now).hasPrefix("18.18M"))
     }
+
+    /// Codex อ่าน % มาจาก rate_limits ตรงๆ ไม่มีฟิลด์ confidence เลย
+    /// ถ้าตีความ nil ว่า "ไม่รู้" ตัวเลข 99% ที่ถูกต้องจะถูกกลบเป็นขีด
+    /// เคยพังมาแล้วเพราะเทสต์ไม่เคยครอบเคส nil
+    func testMissingConfidenceIsExactNotUnknown() {
+        XCTAssertEqual(certainty(confidence: nil), .exact)
+        XCTAssertEqual(certainty(confidence: "ค่าที่ยังไม่รู้จัก"), .exact)
+    }
+
+    /// แถวที่ไม่มีตัวเลขต้องขึ้นขีดจาก pct == nil ไม่ใช่จาก certainty
+    func testRowWithoutPercentStillHidesItsNumber() {
+        let codex = UsageItem(group: "Codex", label: "Codex", window: "5 ชม.", pct: 99)
+        let empty = UsageItem(group: "Qwen Cloud", label: "default", window: "5 ชม.")
+        XCTAssertEqual(certainty(confidence: codex.confidence), .exact)
+        XCTAssertNotNil(codex.pct)
+        XCTAssertNil(empty.pct)
+    }
 }

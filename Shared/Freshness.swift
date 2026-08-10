@@ -24,11 +24,16 @@ func freshness(snapshotAge: TimeInterval?, wokeRecently: Bool) -> Freshness {
     return .dead
 }
 
+/// `confidence` เป็นเรื่องของแคช utilization ของ Claude เท่านั้น
+///
+/// ถังอื่น (Codex ที่อ่าน % มาจาก rate_limits ตรงๆ) ไม่มีฟิลด์นี้เลย — `nil` จึงแปลว่า
+/// "ไม่มีอะไรให้สงสัย" ไม่ใช่ "ไม่รู้" ถ้าตีความว่าไม่รู้ ตัวเลขจริงของ Codex จะถูกกลบเป็นขีด
+/// แถวที่ไม่มีตัวเลขอยู่แล้วขึ้นขีดเองจาก `pct == nil` ไม่ต้องพึ่งค่านี้
 func certainty(confidence: String?) -> Certainty {
     switch confidence {
-    case "valid", "zero": return .exact
     case "lower_bound": return .atLeast
-    default: return .unknown
+    case "unsure": return .unknown
+    default: return .exact
     }
 }
 
