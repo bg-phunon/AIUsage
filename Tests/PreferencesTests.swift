@@ -97,4 +97,38 @@ final class PreferencesTests: XCTestCase {
         XCTAssertTrue(prefs.prices.isEmpty)
         XCTAssertTrue(prefs.pinned.isEmpty)
     }
+
+    // MARK: - ย้ายกลไก visibleMenuBarProviders เดิมมาเป็น hidden
+
+    /// ผู้ใช้เคยตั้ง visibleMenuBarProviders ไว้ ต้องไม่หายตอนรวมกลไก
+    func testMigratesOldVisibleGroupsIntoHidden() {
+        defaults.set(["Claude Code", "Codex"], forKey: "visibleMenuBarProviders")
+        let items = [
+            UsageItem(group: "Claude Code", label: "default", window: "5 ชม."),
+            UsageItem(group: "Codex", label: "Codex", window: "5 ชม."),
+            UsageItem(group: "GLM", label: "default", window: "5 ชม."),
+        ]
+        let prefs = Preferences(defaults: defaults)
+        prefs.migrateVisibleGroups(defaults, allItems: items)
+        XCTAssertTrue(prefs.isVisible("Claude Code/default"))
+        XCTAssertTrue(prefs.isVisible("Codex/Codex"))
+        XCTAssertFalse(prefs.isVisible("GLM/default"), "group ที่เคยปิดไว้ต้องยังปิดอยู่")
+    }
+
+    func testMigrationRunsOnlyOnce() {
+        defaults.set(["Claude Code"], forKey: "visibleMenuBarProviders")
+        let items = [UsageItem(group: "GLM", label: "default", window: "5 ชม.")]
+        let prefs = Preferences(defaults: defaults)
+        prefs.migrateVisibleGroups(defaults, allItems: items)
+        prefs.setHidden("GLM/default", false)          // ผู้ใช้เปิดคืนเอง
+        prefs.migrateVisibleGroups(defaults, allItems: items)
+        XCTAssertTrue(prefs.isVisible("GLM/default"), "ห้ามย้ายซ้ำแล้วทับสิ่งที่ผู้ใช้เพิ่งเลือก")
+        XCTAssertNil(defaults.array(forKey: "visibleMenuBarProviders"))
+    }
+
+    func testMigrationWithNoOldKeyChangesNothing() {
+        let prefs = Preferences(defaults: defaults)
+        prefs.migrateVisibleGroups(defaults, allItems: [])
+        XCTAssertTrue(prefs.hidden.isEmpty)
+    }
 }

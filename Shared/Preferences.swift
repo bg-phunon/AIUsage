@@ -61,6 +61,21 @@ final class Preferences: ObservableObject {
         defaults.set(Array(hidden), forKey: Key.hidden)
     }
 
+    func isVisible(_ id: String) -> Bool { !hidden.contains(id) }
+
+    /// ย้ายค่าจากกลไกเดิม (ซ่อนราย group สำหรับแถบเมนู) มาเป็น hidden ราย bucket
+    /// ลบคีย์เดิมทิ้งหลังย้าย จะได้ไม่ทับสิ่งที่ผู้ใช้เลือกใหม่ในรอบถัดไป
+    func migrateVisibleGroups(_ defaults: UserDefaults, allItems: [UsageItem]) {
+        let key = "visibleMenuBarProviders"
+        guard let visible = defaults.stringArray(forKey: key) else { return }
+        let visibleSet = Set(visible)
+        for item in allItems where !visibleSet.contains(item.group) {
+            hidden.insert(item.id)
+        }
+        defaults.set(Array(hidden), forKey: Key.hidden)
+        defaults.removeObject(forKey: key)
+    }
+
     func setPrice(_ id: String, _ price: Price?) {
         if let price { prices[id] = price } else { prices.removeValue(forKey: id) }
         defaults.set(try? JSONEncoder().encode(prices), forKey: Key.prices)

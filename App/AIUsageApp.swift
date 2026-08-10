@@ -18,6 +18,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var prefsObserver: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // ย้ายค่าที่เคยตั้งไว้ในกลไกเดิม (visibleMenuBarProviders) มาเป็น prefs.hidden
+        // ครั้งเดียวตอนเปิดแอป — model.snapshot โหลดมาแล้วตั้งแต่ตอน UsageModel() ถูกสร้าง
+        model.prefs.migrateVisibleGroups(.standard, allItems: model.snapshot.items)
+
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.action = #selector(togglePopover)
         statusItem.button?.target = self
@@ -79,7 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // เส้นทางเดียว — ปักหมุดแค่กรองว่าจะโชว์ตัวไหน ไม่เปลี่ยนวิธีวาด
         let segments = menuBarSegments(snapshot: snapshot, now: Date(),
                                        wokeRecently: wokeRecently,
-                                       visibleGroups: model.visibleGroups,
+                                       hidden: model.prefs.hidden,
                                        pinned: model.prefs.pinned)
         let alert = hasUnpinnedCritical(snapshot: snapshot, pinned: model.prefs.pinned)
         button.attributedTitle = segmentTitle(segments, alert: alert)
@@ -173,11 +177,7 @@ final class UsageModel: ObservableObject {
     @Published var snapshot: UsageSnapshot = .load()
     @Published var engineError: String?
     @Published var wokeRecently = false
-    @Published var settingsPresented = false
-    // แยกจาก settingsPresented เพราะเปิดหน้าคนละหน้า — settingsPresented เปิด
-    // ProviderSettingsView (รูปแบบหน้าตา + provider บนแถบเมนู) ส่วนตัวนี้เปิด
-    // SettingsView (แสดง/ซ่อนถัง + ใส่ราคาเอง)
+    // หน้าตั้งค่ามีบานเดียว — แสดง/ซ่อนถังใช้ prefs.hidden ทั้งแถบเมนูและ popover
     @Published var showSettings = false
-    @Published var visibleGroups: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "visibleMenuBarProviders") ?? ["Claude Code", "Qwen Cloud", "GLM", "Codex"])
     @Published var designStyle: DesignStyle = DesignStyle(rawValue: UserDefaults.standard.string(forKey: "designStyle") ?? "darkGlass") ?? .darkGlass
 }

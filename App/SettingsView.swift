@@ -55,8 +55,46 @@ struct SettingsView: View {
                     }
                 }
             }
+            Divider()
+            designStylePicker
         }
-        .frame(width: 460, height: 480)
+        .frame(width: 460, height: 620)
+    }
+
+    /// ย้ายมาจากหน้าตั้งค่าเดิมที่ถูกรวมทิ้งไปแล้ว — ยังเป็นฟีเจอร์ที่ต้องเก็บไว้
+    private var designStylePicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("รูปแบบหน้าตา").font(.system(size: 12, weight: .semibold))
+            ForEach(DesignStyle.allCases) { style in
+                Button {
+                    model.designStyle = style
+                    UserDefaults.standard.set(style.rawValue, forKey: "designStyle")
+                } label: {
+                    HStack(spacing: 10) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 6).fill(style.panelFill)
+                            HStack(spacing: 2) {
+                                ProviderLogo(group: "Claude Code", size: 11)
+                                ProviderLogo(group: "Qwen Cloud", size: 11)
+                                ProviderLogo(group: "Codex", size: 11)
+                            }
+                        }.frame(width: 52, height: 30)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(style.title).font(.system(size: 11, weight: .medium))
+                            Text(style.subtitle).font(.system(size: 10)).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if model.designStyle == style {
+                            Image(systemName: "checkmark.circle.fill").foregroundStyle(style.accent)
+                        }
+                    }
+                    .padding(7)
+                    .background(model.designStyle == style ? style.accent.opacity(0.12) : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 8))
+                }.buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
     }
 
     private var shown: Int {

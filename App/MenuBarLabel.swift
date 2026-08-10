@@ -16,7 +16,7 @@ struct MenuBarSegment: Equatable {
 /// แถบสั้นแบบ provider × เปอร์เซ็นต์ สำหรับพื้นที่ menu bar
 /// ไม่มีการสร้างตัวเลขขึ้นเอง: ถ้ายังวัดไม่ได้จะแสดง `—`
 func menuBarSegments(snapshot: UsageSnapshot, now: Date, wokeRecently: Bool,
-                     visibleGroups: Set<String> = ["Claude Code", "Qwen Cloud", "GLM", "Codex"],
+                     hidden: Set<String> = [],
                      pinned: [String] = []) -> [MenuBarSegment] {
     let age = snapshot.generated == .distantPast ? nil : now.timeIntervalSince(snapshot.generated)
     let state = freshness(snapshotAge: age, wokeRecently: wokeRecently)
@@ -27,8 +27,9 @@ func menuBarSegments(snapshot: UsageSnapshot, now: Date, wokeRecently: Bool,
         ("Codex", "openai", "#67C587"),
     ]
     let all: [MenuBarSegment] = definitions.compactMap { group, symbol, color in
-        guard visibleGroups.contains(group) else { return nil }
-        let candidates = snapshot.items.filter { $0.group == group && $0.error == nil && $0.local != true }
+        let candidates = snapshot.items.filter {
+            $0.group == group && $0.error == nil && $0.local != true && !hidden.contains($0.id)
+        }
         guard let item = candidates.max(by: { ($0.displayPct ?? -1) < ($1.displayPct ?? -1) }) else { return nil }
         let usesSession = item.pct != nil
         let certaintyValue = certainty(confidence: usesSession ? item.confidence : (item.weekConfidence ?? item.confidence))

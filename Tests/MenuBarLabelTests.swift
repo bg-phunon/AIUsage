@@ -138,7 +138,7 @@ final class MenuBarLabelTests: XCTestCase {
         let snap = snapshot([groupItem("Claude Code", "default", pct: 96),
                              groupItem("Codex", "Codex", pct: 92)])
         let segments = menuBarSegments(snapshot: snap, now: now, wokeRecently: false,
-                                       visibleGroups: ["Claude Code", "Codex"],
+                                       hidden: [],
                                        pinned: ["Codex/Codex"])
         XCTAssertEqual(segments.map(\.group), ["Codex"])
         XCTAssertFalse(segments[0].assetName.isEmpty, "โลโก้ต้องไม่หายตอนปักหมุด")
@@ -148,7 +148,7 @@ final class MenuBarLabelTests: XCTestCase {
         let snap = snapshot([groupItem("Claude Code", "default", pct: 96),
                              groupItem("Codex", "Codex", pct: 92)])
         let segments = menuBarSegments(snapshot: snap, now: now, wokeRecently: false,
-                                       visibleGroups: ["Claude Code", "Codex"], pinned: [])
+                                       hidden: [], pinned: [])
         XCTAssertEqual(segments.count, 2, "ไม่ปัก = โชว์ทุกเจ้าที่เปิดไว้")
     }
 
@@ -156,7 +156,7 @@ final class MenuBarLabelTests: XCTestCase {
         let snap = snapshot([groupItem("Claude Code", "default", pct: 96),
                              groupItem("Codex", "Codex", pct: 92)])
         let segments = menuBarSegments(snapshot: snap, now: now, wokeRecently: false,
-                                       visibleGroups: ["Claude Code", "Codex"],
+                                       hidden: [],
                                        pinned: ["Codex/Codex", "Claude Code/default"])
         XCTAssertEqual(segments.map(\.group), ["Codex", "Claude Code"])
     }
@@ -164,7 +164,7 @@ final class MenuBarLabelTests: XCTestCase {
     func testPinToAMissingBucketFallsBackToShowingEverything() {
         let snap = snapshot([groupItem("Claude Code", "default", pct: 96)])
         let segments = menuBarSegments(snapshot: snap, now: now, wokeRecently: false,
-                                       visibleGroups: ["Claude Code"],
+                                       hidden: [],
                                        pinned: ["GLM/ที่หายไป"])
         XCTAssertEqual(segments.count, 1, "ปักไปที่ถังที่ไม่มีแล้ว ต้องไม่ได้แถบว่าง")
     }

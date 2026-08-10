@@ -94,12 +94,6 @@ struct PopoverView: View {
                 }.padding(14)
             }
             Divider()
-            HStack {
-                Button("ตั้งค่า…") { model.showSettings = true }
-                    .buttonStyle(.plain).font(.system(size: 11))
-                Spacer()
-            }
-            .padding(.horizontal, 14).padding(.vertical, 8)
             footer
         }
         .frame(width: 380, height: 560)
@@ -109,9 +103,6 @@ struct PopoverView: View {
         .overlay {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(Color.white.opacity(model.designStyle == .native ? 0.08 : 0.16), lineWidth: 1)
-        }
-        .sheet(isPresented: $model.settingsPresented) {
-            ProviderSettingsView(model: model)
         }
         .sheet(isPresented: $model.showSettings) {
             VStack(spacing: 0) {
@@ -139,7 +130,7 @@ struct PopoverView: View {
             Button { refreshEngine() } label: {
                 Image(systemName: "arrow.clockwise")
             }.buttonStyle(.borderless).help("รีเฟรชเดี๋ยวนี้")
-            Button { model.settingsPresented = true } label: {
+            Button { model.showSettings = true } label: {
                 Image(systemName: "gearshape")
             }.buttonStyle(.borderless).help("ตั้งค่า")
             Button { NSApplication.shared.terminate(nil) } label: {
@@ -425,83 +416,6 @@ struct PopoverView: View {
 
     private func providerColorForTint(_ tint: Color) -> Color {
         tint
-    }
-}
-
-struct ProviderSettingsView: View {
-    @ObservedObject var model: UsageModel
-    private let providers = [
-        ("Claude Code", "Claude", "brain.head.profile"),
-        ("Qwen Cloud", "Qwen Cloud", "cloud.fill"),
-        ("GLM", "GLM", "sparkles"),
-        ("Codex", "Codex", "command"),
-    ]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Image(systemName: "gearshape.fill").foregroundStyle(.blue)
-                Text("ตั้งค่า menu bar").font(.system(size: 15, weight: .semibold))
-                Spacer()
-            }
-            Text("เลือก provider ที่ต้องการให้แสดงบนแถบด้านบน")
-                .font(.system(size: 11)).foregroundStyle(.secondary)
-            Text("รูปแบบหน้าตา")
-                .font(.system(size: 12, weight: .semibold))
-            ForEach(DesignStyle.allCases) { style in
-                Button {
-                    model.designStyle = style
-                    UserDefaults.standard.set(style.rawValue, forKey: "designStyle")
-                } label: {
-                    HStack(spacing: 10) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 6).fill(style.panelFill)
-                            HStack(spacing: 2) {
-                                ProviderLogo(group: "Claude Code", size: 11)
-                                ProviderLogo(group: "Qwen Cloud", size: 11)
-                                ProviderLogo(group: "Codex", size: 11)
-                            }
-                        }.frame(width: 52, height: 30)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(style.title).font(.system(size: 11, weight: .medium))
-                            Text(style.subtitle).font(.system(size: 10)).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        if model.designStyle == style { Image(systemName: "checkmark.circle.fill").foregroundStyle(style.accent) }
-                    }
-                    .padding(7)
-                    .background(model.designStyle == style ? style.accent.opacity(0.12) : Color.clear,
-                                in: RoundedRectangle(cornerRadius: 8))
-                }.buttonStyle(.plain)
-            }
-            Text("provider ที่แสดงบน menu bar")
-                .font(.system(size: 12, weight: .semibold))
-            ForEach(providers, id: \.0) { provider in
-                Toggle(isOn: binding(for: provider.0)) {
-                    Label(provider.1, systemImage: provider.2)
-                }
-                .toggleStyle(.switch)
-            }
-            Divider()
-            HStack {
-                Spacer()
-                Button("เสร็จแล้ว") { model.settingsPresented = false }
-                    .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(20)
-        .frame(width: 300)
-    }
-
-    private func binding(for group: String) -> Binding<Bool> {
-        Binding(
-            get: { model.visibleGroups.contains(group) },
-            set: { enabled in
-                if enabled { model.visibleGroups.insert(group) }
-                else { model.visibleGroups.remove(group) }
-                UserDefaults.standard.set(Array(model.visibleGroups), forKey: "visibleMenuBarProviders")
-                NotificationCenter.default.post(name: .aiUsageSettingsChanged, object: nil)
-            })
     }
 }
 
