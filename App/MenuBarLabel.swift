@@ -35,8 +35,7 @@ func menuBarSegments(snapshot: UsageSnapshot, now: Date, wokeRecently: Bool,
         if state == .dead || certaintyValue == .unknown || item.displayPct == nil {
             value = "—"
         } else {
-            let prefix = certaintyValue == .atLeast ? "≥" : ""
-            value = "\(prefix)\(Int((item.displayPct ?? 0).rounded()))%"
+            value = "\(Int((item.displayPct ?? 0).rounded()))%"
         }
         return MenuBarSegment(group: group, assetName: symbol, value: value, color: color)
     }
@@ -67,7 +66,7 @@ func menuBarText(snapshot: UsageSnapshot, now: Date, wokeRecently: Bool) -> Menu
 private func percentageLine(_ prefix: String, _ pct: Double?, _ certaintyValue: Certainty) -> String {
     guard let pct, certaintyValue != .unknown else { return "\(prefix)    —" }
     let number = Int(pct.rounded())
-    let body = certaintyValue == .atLeast ? "≥\(number)%" : "\(number)%"
+    let body = "\(number)%"
     return prefix + String(repeating: " ", count: max(1, 7 - prefix.count - body.count)) + body
 }
 
@@ -91,7 +90,7 @@ func compactLine(_ item: UsageItem) -> String {
     let sure = certainty(confidence: useWeek ? (item.weekConfidence ?? item.confidence)
                                              : item.confidence)
     guard let pct, sure != .unknown else { return "—" }
-    return (sure == .atLeast ? "≥" : "") + "\(Int(pct.rounded()))%"
+    return "\(Int(pct.rounded()))%"
 }
 
 /// มีถังที่ไม่ได้ปักกำลังวิกฤตอยู่ไหม

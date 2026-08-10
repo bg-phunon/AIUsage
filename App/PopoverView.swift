@@ -361,7 +361,7 @@ struct PopoverView: View {
 
     private func pctText(_ pct: Double?, _ certaintyValue: Certainty) -> String {
         guard let pct, certaintyValue != .unknown else { return "—" }
-        return (certaintyValue == .atLeast ? "≥" : "") + String(format: "%.0f%%", pct)
+        return String(format: "%.0f%%", pct)
     }
 
 
@@ -388,7 +388,7 @@ struct PopoverView: View {
                                     hint: "ผู้ให้บริการนี้ไม่ได้บอกโควตาคงเหลือมาในไฟล์ใดๆ"))
         }
         if certainty(confidence: item.confidence) == .atLeast {
-            flags.append(StatusFlag(text: "≥ ใช้ต่อหลังเช็ค", tint: .secondary,
+            flags.append(StatusFlag(text: "ใช้ต่อหลังเช็ค", tint: .secondary,
                                     hint: "มีการใช้งานหลังตัวเลขล่าสุด ของจริงสูงกว่าที่แสดง"))
         }
         return flags

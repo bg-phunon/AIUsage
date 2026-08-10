@@ -22,8 +22,8 @@ final class MenuBarLabelTests: XCTestCase {
         XCTAssertEqual(exact.top, "5h   5%")
         XCTAssertEqual(exact.bottom, "7d  96%")
         let lower = menuBarText(snapshot: snapshot([item(pct: 5, weekPct: 96, confidence: "lower_bound")]), now: now, wokeRecently: false)
-        XCTAssertEqual(lower.top, "5h  ≥5%")
-        XCTAssertEqual(lower.bottom, "7d ≥96%")
+        XCTAssertEqual(lower.top, "5h   5%")
+        XCTAssertEqual(lower.bottom, "7d  96%")
     }
 
     func testStaleAndDeadSnapshot() {
@@ -88,7 +88,7 @@ final class MenuBarLabelTests: XCTestCase {
         var item = named("Claude Code", "default", pct: 5, weekPct: 96)
         item.confidence = "lower_bound"
         item.weekConfidence = "lower_bound"
-        XCTAssertEqual(compactLine(item), "≥96%")
+        XCTAssertEqual(compactLine(item), "96%")
     }
 
     func testCompactLineShowsTheMoreUrgentWindow() {
