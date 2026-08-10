@@ -236,6 +236,14 @@ struct PopoverView: View {
                                     .font(.system(size: 8))
                                     .foregroundStyle(.secondary.opacity(0.55))
                                     .help("โควตาเก่า \(ageText(age)) — เปิด /usage ใน Claude Code แล้วรอไม่เกิน 60 วินาที")
+                            } else if noQuotaSource(item) {
+                                // ไม่งั้นแถวจะขึ้น — เปล่าๆ โดยไม่มีอะไรบอกว่าทำไม
+                                Image(systemName: "questionmark.circle")
+                                    .font(.system(size: 8))
+                                    .foregroundStyle(.secondary.opacity(0.55))
+                                    .help(item.local == true
+                                          ? "รันในเครือข่ายตัวเอง ไม่มีโควตาให้นับ"
+                                          : "ผู้ให้บริการนี้ไม่ได้บอกโควตาคงเหลือมาในไฟล์ใดๆ")
                             }
                         }
                         Text(item.label).font(.system(size: 10)).foregroundStyle(.secondary)
@@ -361,6 +369,12 @@ struct PopoverView: View {
     private func staleQuotaAge(_ item: UsageItem) -> TimeInterval? {
         guard !item.isOfficial else { return nil }
         return item.dataAge(now: now)
+    }
+
+    /// ไม่เคยมีแหล่งเพดานเลย (Qwen Cloud, GLM, spark) — คนละเรื่องกับแคชเก่า
+    /// ที่เปิด /usage แล้วหาย อันนี้เปิดยังไงก็ไม่มา ต้องบอกให้ต่างกัน
+    private func noQuotaSource(_ item: UsageItem) -> Bool {
+        item.error == nil && !item.isOfficial && item.dataAge(now: now) == nil
     }
 
     /// รางกับแถบเปล่าๆ ไม่มีป้ายกับตัวเลข — สองอย่างนั้นกลายเป็นคอลัมน์ของตารางแล้ว
