@@ -142,28 +142,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             model.snapshot = .load()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            if let window = popover.contentViewController?.view.window {
-                window.isOpaque = false
-                window.backgroundColor = .clear
-                window.contentView?.wantsLayer = true
-                window.contentView?.layer?.backgroundColor = NSColor.clear.cgColor
-                window.hasShadow = true
-                window.invalidateShadow()
-                window.makeKey()
-            }
+            // ห้ามบังคับหน้าต่างให้ใส — เคยตั้ง isOpaque=false + backgroundColor=.clear
+            // ไว้ตรงนี้ ทำให้วอลเปเปอร์ทะลุขึ้นมาจนตัวเลขอ่านไม่ออก
+            // ปล่อยให้ NSPopover จัดการพื้นหลังเอง แล้ว SwiftUI วาดทับ
+            popover.contentViewController?.view.window?.makeKey()
         }
     }
 
     @objc private func openFromMenu() { togglePopover() }
 
+    /// เดิมเปิด ~/.config/ai-usage/config.json ใน TextEdit ซึ่งเป็นของยุคก่อนมีหน้าตั้งค่า
+    /// ผู้ใช้กด "ตั้งค่า…" สองที่แล้วได้คนละอย่างสิ้นเชิง
     @objc private func openSettings() {
-        let url = URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent(".config/ai-usage/config.json")
-        if !FileManager.default.fileExists(atPath: url.path) {
-            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? Data("{}\n".utf8).write(to: url)
-        }
-        NSWorkspace.shared.open(url)
+        model.showSettings = true
+        if !popover.isShown { togglePopover() }
     }
 
     @objc private func terminate() { NSApplication.shared.terminate(nil) }

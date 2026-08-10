@@ -65,6 +65,47 @@ struct PopoverView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if model.showSettings { settingsPane } else { mainPane }
+        }
+        .frame(width: 380, height: 560)
+        .background { panelBackground }
+        .preferredColorScheme(model.designStyle == .native ? nil : .dark)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.white.opacity(model.designStyle == .native ? 0.08 : 0.16), lineWidth: 1)
+        }
+        .onReceive(tick) { now = $0 }
+    }
+
+
+    /// หน้าตั้งค่าอยู่ "ในตัว popover" ไม่ใช่ .sheet
+    /// popover เป็น .transient มันปิดตัวเองเมื่อเสียโฟกัส sheet ที่เปิดจากมันจึงพากันหาย
+    @ViewBuilder private var settingsPane: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Button {
+                    model.showSettings = false
+                } label: {
+                    Image(systemName: "chevron.left")
+                    Text("กลับ")
+                }
+                .buttonStyle(.plain)
+                Spacer()
+                Text("ตั้งค่า").font(.system(size: 13, weight: .semibold))
+                Spacer()
+                Color.clear.frame(width: 44, height: 1)
+            }
+            .font(.system(size: 12))
+            .padding(.horizontal, 14).padding(.vertical, 12)
+            .background(chromeFill)
+            Divider()
+            SettingsView(model: model, prefs: prefs)
+        }
+    }
+
+    @ViewBuilder private var mainPane: some View {
+        VStack(alignment: .leading, spacing: 0) {
             header
             if let error = model.engineError {
                 strip(icon: "exclamationmark.triangle.fill", text: error, tint: .red)
@@ -96,23 +137,6 @@ struct PopoverView: View {
             Divider()
             footer
         }
-        .frame(width: 380, height: 560)
-        .background { panelBackground }
-        .preferredColorScheme(model.designStyle == .native ? nil : .dark)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.white.opacity(model.designStyle == .native ? 0.08 : 0.16), lineWidth: 1)
-        }
-        .sheet(isPresented: $model.showSettings) {
-            VStack(spacing: 0) {
-                SettingsView(model: model, prefs: prefs)
-                Divider()
-                HStack { Spacer(); Button("เสร็จ") { model.showSettings = false } }
-                    .padding(10)
-            }
-        }
-        .onReceive(tick) { now = $0 }
     }
 
     private var header: some View {
