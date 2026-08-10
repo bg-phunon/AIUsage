@@ -156,6 +156,9 @@ struct PopoverView: View {
             ZStack {
                 VisualEffectBackground(material: .hudWindow)
                 ambientLight
+                // ม่านทึบทับแสง — SwiftUI ไม่มี backdrop-filter แบบเว็บ
+                // ถ้าไม่มีชั้นนี้ ก้อนแสงจะทะลุขึ้นมาเต็มๆ แล้วตัวหนังสืออ่านไม่ออก
+                Color.black.opacity(0.62)
             }
         case .native:
             VisualEffectBackground(material: .popover)
@@ -172,18 +175,18 @@ struct PopoverView: View {
         GeometryReader { geo in
             let w = geo.size.width, h = geo.size.height
             ZStack {
-                blob(Color(red: 1.0, green: 0.56, blue: 0.37), w * 0.9)
+                blob(Color(red: 1.0, green: 0.56, blue: 0.37), w * 0.62)
                     .offset(x: -w * 0.30, y: -h * 0.34)
-                blob(Color(red: 0.10, green: 0.81, blue: 0.78), w * 1.0)
+                blob(Color(red: 0.10, green: 0.81, blue: 0.78), w * 0.68)
                     .offset(x: w * 0.34, y: -h * 0.24)
-                blob(Color(red: 0.56, green: 0.38, blue: 1.0), w * 0.95)
+                blob(Color(red: 0.56, green: 0.38, blue: 1.0), w * 0.66)
                     .offset(x: w * 0.02, y: h * 0.36)
-                blob(Color(red: 1.0, green: 0.82, blue: 0.34), w * 0.5)
+                blob(Color(red: 1.0, green: 0.82, blue: 0.34), w * 0.34)
                     .offset(x: w * 0.28, y: h * 0.44)
                     .opacity(0.6)
             }
-            .blur(radius: 58)
-            .opacity(0.30)
+            .blur(radius: 72)
+            .opacity(0.28)
         }
         .allowsHitTesting(false)
     }
@@ -327,8 +330,7 @@ struct PopoverView: View {
                 .overlay {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .strokeBorder(model.designStyle.rimHighlight, lineWidth: 1)
-                        .blendMode(.plusLighter)
-                        .opacity(0.7)
+                        .opacity(0.55)
                 }
         }
         .shadow(color: model.designStyle == .native ? Color.black.opacity(0.07) : .clear,
