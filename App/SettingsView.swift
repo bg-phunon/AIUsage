@@ -34,10 +34,10 @@ struct SettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("แสดง \(shown) จาก \(model.snapshot.items.count) ถัง")
+                Text("แสดง \(shown) จาก \(configurableItems.count) ถัง")
                 Spacer()
                 Button("เปิดทั้งหมด") {
-                    for item in model.snapshot.items {
+                    for item in configurableItems {
                         prefs.setHidden(item.id, false)
                     }
                 }
@@ -49,7 +49,7 @@ struct SettingsView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(model.snapshot.items) { item in
+                    ForEach(configurableItems) { item in
                         row(item)
                         Divider()
                     }
@@ -58,7 +58,9 @@ struct SettingsView: View {
             Divider()
             designStylePicker
         }
-        .frame(width: 460, height: 620)
+        // ห้ามตั้งขนาดตายตัว — เคยเป็น 460x620 จากยุคที่เปิดเป็น sheet แยก
+        // พอฝังใน popover กว้าง 380 ขอบขวาโดนตัด ปุ่ม "แก้ราคา" กดไม่ได้เลย
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     /// ย้ายมาจากหน้าตั้งค่าเดิมที่ถูกรวมทิ้งไปแล้ว — ยังเป็นฟีเจอร์ที่ต้องเก็บไว้
@@ -97,8 +99,14 @@ struct SettingsView: View {
         .padding(.horizontal, 14).padding(.vertical, 10)
     }
 
+    /// แถวที่ผู้ใช้ตั้งค่าได้จริง — "กรอกเอง" ถูกระบบซ่อนถาวรอยู่แล้ว
+    /// เอามานับรวมจะได้เลขอย่าง "แสดง 7 จาก 10" ทั้งที่ตั้งได้แค่ 7
+    private var configurableItems: [UsageItem] {
+        model.snapshot.items.filter { $0.group != "กรอกเอง" }
+    }
+
     private var shown: Int {
-        model.snapshot.items.filter { !prefs.hidden.contains($0.id) }.count
+        configurableItems.filter { !prefs.hidden.contains($0.id) }.count
     }
 
     @ViewBuilder

@@ -42,7 +42,7 @@ struct PopoverView: View {
     }
 
     private var displayItems: [UsageItem] {
-        model.snapshot.items.filter { item in
+        let visible = model.snapshot.items.filter { item in
             guard !prefs.hidden.contains(item.id) else { return false }
             guard item.group != "กรอกเอง" else { return false }
             if item.group == "ยังไม่รู้จัก" {
@@ -50,6 +50,9 @@ struct PopoverView: View {
             }
             return true
         }
+        // ถังเปล่าจมลงล่าง — ของที่มีตัวเลขจริงต้องเห็นก่อนโดยไม่ต้องเลื่อน
+        // (partition แบบเสถียร ลำดับเดิมภายในแต่ละกลุ่มคงอยู่)
+        return visible.filter { !isEmptyBucket($0) } + visible.filter { isEmptyBucket($0) }
     }
 
     private var knownWeeklyCost: Double {
@@ -241,10 +244,22 @@ struct PopoverView: View {
             .background(tint.opacity(0.12))
     }
 
+
+    /// ถังที่ไม่มีอะไรจะบอกเลย — ไม่มี % ไม่มี token ไม่มี error
+    /// การ์ดเปล่าที่สูงเท่าการ์ดข้อมูลจริงทำให้ครึ่งหนึ่งของ popover เป็นขีดกับจุดประ
+    private func isEmptyBucket(_ item: UsageItem) -> Bool {
+        item.error == nil && item.pct == nil && item.weekPct == nil
+            && item.tokens == 0 && item.weekTokens == 0
+    }
+
     @ViewBuilder private func row(_ item: UsageItem) -> some View {
         let sessionCertainty = item.error == nil ? certainty(confidence: item.confidence) : .unknown
         let weekCertainty = item.error == nil ? certainty(confidence: item.weekConfidence ?? item.confidence) : .unknown
         let headlineCertainty = item.pct == nil ? weekCertainty : sessionCertainty
+        let _ = (sessionCertainty, weekCertainty, headlineCertainty)  // ใช้ในกิ่งเต็มเท่านั้น
+        if isEmptyBucket(item) {
+            compactRow(item)
+        } else {
         HStack(alignment: .top, spacing: 8) {
             pinButton(item)
             VStack(alignment: .leading, spacing: 8) {
@@ -332,6 +347,32 @@ struct PopoverView: View {
         }
         .shadow(color: model.designStyle == .native ? Color.black.opacity(0.07) : .clear,
                 radius: 7, y: 2)
+        }
+    }
+
+    /// การ์ดเปล่า — บรรทัดเดียว: หมุด โลโก้ ชื่อ เหตุผลสั้นๆ
+    /// ยังกดหมุดและอ่าน tooltip ได้ครบ แค่ไม่กิน 3 บรรทัดเหมือนการ์ดข้อมูล
+    @ViewBuilder private func compactRow(_ item: UsageItem) -> some View {
+        HStack(spacing: 8) {
+            pinButton(item)
+            providerMark(item.group)
+            Text(item.group).font(.system(size: 12, weight: .semibold))
+            Text(item.label).font(.system(size: 10.5)).foregroundStyle(.primary.opacity(0.66))
+            if let plan = item.plan {
+                Text(plan).font(.system(size: 9, weight: .medium))
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(providerColor(item.group).opacity(0.15)).clipShape(Capsule())
+            }
+            Spacer()
+            Text(item.local == true ? "ไม่มีโควตา" : "ยังไม่มีข้อมูล")
+                .font(.system(size: 10)).foregroundStyle(.secondary)
+                .help(item.local == true
+                      ? "รันในเครือข่ายตัวเอง ไม่มีโควตาให้นับ"
+                      : "ยังไม่เห็นการใช้งานหรือแหล่งโควตาของถังนี้")
+        }
+        .padding(.horizontal, 13).padding(.vertical, 9)
+        .background(cardFill(for: item).opacity(0.6),
+                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private func pinButton(_ item: UsageItem) -> some View {
