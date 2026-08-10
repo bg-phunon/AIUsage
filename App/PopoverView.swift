@@ -129,7 +129,7 @@ struct PopoverView: View {
                 .padding(.horizontal, 14).padding(.vertical, 8)
             }
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
+                LazyVStack(alignment: .leading, spacing: 8) {
                     ForEach(displayItems) { item in row(item) }
                     if displayItems.isEmpty {
                         Text("ยังไม่มีข้อมูล").foregroundStyle(.secondary)
@@ -257,7 +257,7 @@ struct PopoverView: View {
         let weekCertainty = item.error == nil ? certainty(confidence: item.weekConfidence ?? item.confidence) : .unknown
         let headlineCertainty = item.pct == nil ? weekCertainty : sessionCertainty
         let _ = (sessionCertainty, weekCertainty, headlineCertainty)  // ใช้ในกิ่งเต็มเท่านั้น
-        if isEmptyBucket(item) {
+        if item.error == nil && displayableWindows(item).isEmpty {
             compactRow(item)
         } else {
         HStack(alignment: .top, spacing: 8) {
@@ -302,7 +302,7 @@ struct PopoverView: View {
                     // ตัวเลขเดียวที่ไม่บอกว่าเป็นของ 5h หรือ 7d ทำให้สับสนมากกว่าช่วย
                 }
                 // ตารางสองแถวเสมอ (5h, 7d) — ความยาวคงที่ทำให้ทุกการ์ดสูงเท่ากันและกวาดตาลงคอลัมน์ได้
-                ForEach(windowRows(item), id: \.label) { window in
+                ForEach(displayableWindows(item), id: \.label) { window in
                     HStack(spacing: 8) {
                         Text(window.label)
                             .font(.system(size: 10, weight: .semibold, design: .rounded))
@@ -313,7 +313,7 @@ struct PopoverView: View {
                             .font(.system(size: 10, weight: .medium, design: .rounded))
                             .monospacedDigit()
                             .frame(width: 42, alignment: .trailing)
-                        Text(window.resetAt == nil ? "" : countdownText(to: window.resetAt, from: now))
+                        Text(resetColumnText(window.resetAt))
                             .font(.system(size: 9))
                             .foregroundStyle(.secondary)
                             .frame(width: 56, alignment: .trailing)
@@ -323,12 +323,10 @@ struct PopoverView: View {
                 if let note = rowFootnote(item, price: prefs.prices[item.id], now: now) {
                     Text(note).font(.system(size: 10)).foregroundStyle(.secondary)
                         .lineLimit(1)
-                } else {
-                    Color.clear.frame(height: 13)   // กันที่ไว้ ทุกการ์ดจะได้สูงเท่ากัน
                 }
             }
         }
-        .padding(13)
+        .padding(11)
         .background {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(model.designStyle == .colorful
@@ -363,16 +361,32 @@ struct PopoverView: View {
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(providerColor(item.group).opacity(0.15)).clipShape(Capsule())
             }
+            // สัญญาณเดียวกับการ์ดเต็ม — ผู้ใช้ยังเห็นว่าทำไมไม่มีเลข
+            if let age = staleQuotaAge(item) {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 8)).foregroundStyle(.secondary.opacity(0.55))
+                    .help("โควตาเก่า \(ageText(age)) — เปิด /usage ใน Claude Code แล้วรอไม่เกิน 60 วินาที")
+            }
             Spacer()
-            Text(item.local == true ? "ไม่มีโควตา" : "ยังไม่มีข้อมูล")
+            Text(rowFootnote(item, price: prefs.prices[item.id], now: now)
+                 ?? (item.local == true ? "ไม่มีโควตา" : "ยังไม่มีข้อมูล"))
                 .font(.system(size: 10)).foregroundStyle(.secondary)
+                .lineLimit(1)
                 .help(item.local == true
                       ? "รันในเครือข่ายตัวเอง ไม่มีโควตาให้นับ"
-                      : "ยังไม่เห็นการใช้งานหรือแหล่งโควตาของถังนี้")
+                      : "ยังไม่มีเลขโควตาที่เชื่อได้ของถังนี้ — ดูไอคอนหน้าชื่อว่าเพราะอะไร")
         }
         .padding(.horizontal, 13).padding(.vertical, 9)
         .background(cardFill(for: item).opacity(0.6),
                     in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+
+    /// คอลัมน์เวลารีเซ็ต — ว่างเมื่อไม่มีหรือรีเซ็ตผ่านไปแล้ว
+    /// "รีเซ็ตแล้ว" ที่ค้างโชว์คือ noise: เลขในแถวนั้นสดกว่าข้อความนี้เสมอ
+    private func resetColumnText(_ resetAt: Date?) -> String {
+        guard let resetAt, resetAt > now else { return "" }
+        return countdownText(to: resetAt, from: now)
     }
 
     private func pinButton(_ item: UsageItem) -> some View {
@@ -489,6 +503,13 @@ func windowRows(_ item: UsageItem) -> [WindowRow] {
      WindowRow(label: "7d", pct: item.weekPct,
                sure: certainty(confidence: item.weekConfidence ?? item.confidence),
                resetAt: nil)]
+}
+
+
+/// เฉพาะหน้าต่างที่มีเลขจริงให้ดู — แถวจุดประกับขีดไม่บอกอะไรและทำให้ popover รก
+/// ถังที่ไม่เหลือสักแถวจะถูกวาดแบบบรรทัดเดียวแทน
+func displayableWindows(_ item: UsageItem) -> [WindowRow] {
+    windowRows(item).filter { $0.pct != nil && $0.sure != .unknown }
 }
 
 /// บรรทัดเดียวใต้แถบ — สั้นพอที่จะไม่ตัดบรรทัด nil เมื่อไม่มีอะไรต้องบอก

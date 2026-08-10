@@ -3,12 +3,25 @@ import XCTest
 
 final class RowLayoutTests: XCTestCase {
 
-    func testAlwaysTwoWindowRowsSoCardsShareOneHeight() {
+    func testWindowRowsAlwaysDescribeBothWindows() {
+        // windowRows เป็นข้อมูลดิบ — สองหน้าต่างเสมอ ส่วนจะวาดกี่แถวเป็นเรื่องของ displayableWindows
         let full = UsageItem(group: "Claude Code", label: "default", window: "5 ชม.",
                              pct: 12, weekPct: 5, confidence: "valid", weekConfidence: "valid")
-        let empty = UsageItem(group: "GLM", label: "default", window: "5 ชม.")
         XCTAssertEqual(windowRows(full).count, 2)
-        XCTAssertEqual(windowRows(empty).count, 2, "ถังที่ไม่มีข้อมูลก็ต้องสูงเท่ากัน")
+    }
+
+    /// แถวจุดประกับขีดไม่บอกอะไร — ถังไม่มีเลขต้องไม่ได้แถวตารางเลย (ไปเป็นบรรทัดเดียวแทน)
+    func testOnlyWindowsWithRealNumbersAreDisplayed() {
+        let full = UsageItem(group: "Claude Code", label: "default", window: "5 ชม.",
+                             pct: 12, weekPct: 5, confidence: "valid", weekConfidence: "valid")
+        let halfKnown = UsageItem(group: "Claude Code", label: "default", window: "5 ชม.",
+                                  pct: nil, weekPct: 5,
+                                  confidence: "unsure", weekConfidence: "lower_bound")
+        let empty = UsageItem(group: "GLM", label: "default", window: "5 ชม.")
+        XCTAssertEqual(displayableWindows(full).count, 2)
+        XCTAssertEqual(displayableWindows(halfKnown).map(\.label), ["7d"],
+                       "หน้าต่างที่ unsure ต้องหาย เหลือเฉพาะที่มีเลขจริง")
+        XCTAssertTrue(displayableWindows(empty).isEmpty)
     }
 
     func testWindowRowsKeepTheirOwnCertainty() {
