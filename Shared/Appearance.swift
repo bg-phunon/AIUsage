@@ -22,11 +22,35 @@ enum DesignStyle: String, CaseIterable, Identifiable {
     }
     var accent: Color {
         switch self {
-        case .darkGlass: return .cyan
+        case .darkGlass: return Color(red: 0.66, green: 0.55, blue: 1.0)  // ม่วงตามดีไซน์
         case .native: return .blue
         case .colorful: return .purple
         }
     }
+    /// ไล่สี 165° ตามดีไซน์ — การ์ดแบนไม่มีความลึก ดูไม่เป็นกระจก
+    var cardGradient: LinearGradient {
+        let stops: [Color]
+        switch self {
+        case .darkGlass:
+            stops = [Color.white.opacity(0.115), Color.white.opacity(0.055), Color.white.opacity(0.085)]
+        case .native:
+            stops = [Color.primary.opacity(0.075), Color.primary.opacity(0.045), Color.primary.opacity(0.06)]
+        case .colorful:
+            stops = [Color.white.opacity(0.10), Color.white.opacity(0.045), Color.white.opacity(0.075)]
+        }
+        return LinearGradient(stops: [.init(color: stops[0], location: 0),
+                                      .init(color: stops[1], location: 0.55),
+                                      .init(color: stops[2], location: 1)],
+                              startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+
+    /// ขอบสว่างด้านบน — เส้นเดียวที่ทำให้กระจกดูเป็นกระจกจริง
+    var rimHighlight: LinearGradient {
+        let top = self == .native ? 0.22 : 0.34
+        return LinearGradient(colors: [Color.white.opacity(top), Color.white.opacity(0.06), .clear],
+                              startPoint: .top, endPoint: .bottom)
+    }
+
     var cardFill: Color {
         switch self {
         case .darkGlass: return Color.white.opacity(0.075)

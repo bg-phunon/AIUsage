@@ -155,8 +155,7 @@ struct PopoverView: View {
         case .darkGlass:
             ZStack {
                 VisualEffectBackground(material: .hudWindow)
-                LinearGradient(colors: [Color.cyan.opacity(0.055), .clear, Color.blue.opacity(0.04)],
-                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                ambientLight
             }
         case .native:
             VisualEffectBackground(material: .popover)
@@ -165,6 +164,35 @@ struct PopoverView: View {
                                     Color(red: 0.025, green: 0.045, blue: 0.10)],
                            startPoint: .topLeading, endPoint: .bottomTrailing)
         }
+    }
+
+
+    /// แสงพื้นหลังสี่ก้อน — ถ้าไม่มีอะไรให้หักเห กระจกก็เป็นแค่สีเทาโปร่ง
+    private var ambientLight: some View {
+        GeometryReader { geo in
+            let w = geo.size.width, h = geo.size.height
+            ZStack {
+                blob(Color(red: 1.0, green: 0.56, blue: 0.37), w * 0.9)
+                    .offset(x: -w * 0.30, y: -h * 0.34)
+                blob(Color(red: 0.10, green: 0.81, blue: 0.78), w * 1.0)
+                    .offset(x: w * 0.34, y: -h * 0.24)
+                blob(Color(red: 0.56, green: 0.38, blue: 1.0), w * 0.95)
+                    .offset(x: w * 0.02, y: h * 0.36)
+                blob(Color(red: 1.0, green: 0.82, blue: 0.34), w * 0.5)
+                    .offset(x: w * 0.28, y: h * 0.44)
+                    .opacity(0.6)
+            }
+            .blur(radius: 58)
+            .opacity(0.30)
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func blob(_ color: Color, _ size: CGFloat) -> some View {
+        Circle()
+            .fill(RadialGradient(colors: [color, color.opacity(0)],
+                                 center: .center, startRadius: 0, endRadius: size / 2))
+            .frame(width: size, height: size)
     }
 
     private var footer: some View {
@@ -286,10 +314,22 @@ struct PopoverView: View {
             }
         }
         .padding(13)
-        .background(cardFill(for: item), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(model.designStyle == .colorful
+                      ? AnyShapeStyle(cardFill(for: item))
+                      : AnyShapeStyle(model.designStyle.cardGradient))
+        }
         .overlay {
+            // ขอบนอก + ขอบสว่างด้านบน ซ้อนกันสองชั้นตามดีไซน์
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(cardStroke(for: item), lineWidth: 1)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(model.designStyle.rimHighlight, lineWidth: 1)
+                        .blendMode(.plusLighter)
+                        .opacity(0.7)
+                }
         }
         .shadow(color: model.designStyle == .native ? Color.black.opacity(0.07) : .clear,
                 radius: 7, y: 2)
