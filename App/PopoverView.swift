@@ -219,11 +219,25 @@ struct PopoverView: View {
         let headlineCertainty = item.pct == nil ? weekCertainty : sessionCertainty
         HStack(alignment: .top, spacing: 8) {
             pinButton(item)
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
                     providerMark(item.group)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(item.group).font(.system(size: 12, weight: .semibold))
+                        HStack(spacing: 4) {
+                            Text(item.group).font(.system(size: 12, weight: .semibold))
+                            // จุดแดง = ชนลิมิตแล้ว ไม่กินความสูงเหมือนป้ายเดิม
+                            if let active = item.activeLimit {
+                                Circle().fill(Color.red).frame(width: 5, height: 5)
+                                    .help("ชนลิมิต \(active) — รอรีเซ็ตหรือสลับโมเดล")
+                            }
+                            // ไอคอนจาง = เคยรู้เพดานแต่แคชเก่าไปแล้ว
+                            if let age = staleQuotaAge(item) {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 8))
+                                    .foregroundStyle(.secondary.opacity(0.55))
+                                    .help("โควตาเก่า \(ageText(age)) — เปิด /usage ใน Claude Code แล้วรอไม่เกิน 60 วินาที")
+                            }
+                        }
                         Text(item.label).font(.system(size: 10)).foregroundStyle(.secondary)
                     }
                     if let plan = item.plan { Text(plan).font(.system(size: 9, weight: .medium))
@@ -237,43 +251,30 @@ struct PopoverView: View {
                             .font(.system(size: 12, weight: .medium)).monospacedDigit()
                     }
                 }
-                usageBar(label: "5h", pct: item.pct, tint: item.tint, sure: sessionCertainty)
-                usageBar(label: "7d", pct: item.weekPct, tint: item.tint, sure: weekCertainty)
-                // ข้อเท็จจริงซ้าย · เงินขวา — คนละประเภทกัน อย่าให้ไหลปนกันในประโยคเดียว
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    if let error = item.error {
-                        Text(error).foregroundStyle(.red).lineLimit(2)
-                    } else if item.local == true {
-                        Text("ในเครือข่ายตัวเอง · ไม่มีโควตา")
-                    } else if !item.isOfficial {
-                        Text(primaryDetail(item))
-                    } else {
-                        Text("รีเซ็ต \(countdownText(to: item.resetAt, from: now))")
+                // ตารางสองแถวเสมอ (5h, 7d) — ความยาวคงที่ทำให้ทุกการ์ดสูงเท่ากันและกวาดตาลงคอลัมน์ได้
+                ForEach(windowRows(item), id: \.label) { window in
+                    HStack(spacing: 8) {
+                        Text(window.label)
+                            .font(.system(size: 9, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 20, alignment: .leading)
+                        bar(window, tint: item.tint)
+                        Text(pctText(window.pct, window.sure))
+                            .font(.system(size: 10, weight: .medium, design: .rounded))
+                            .monospacedDigit()
+                            .frame(width: 42, alignment: .trailing)
+                        Text(window.resetAt == nil ? "" : countdownText(to: window.resetAt, from: now))
+                            .font(.system(size: 9))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 56, alignment: .trailing)
                     }
-                    Spacer(minLength: 8)
-                    if let label = costLabel(item, price: prefs.prices[item.id]) {
-                        // nil แปลว่าไม่รู้ราคา — ห้ามแทนด้วย $0.00 เด็ดขาด (ดู costLabel)
-                        Text(label).monospacedDigit()
-                    } else if item.weekTokens > 0 && item.local != true {
-                        Text("ราคาไม่ทราบ")
-                    }
+                    .frame(height: 16)
                 }
-                .font(.system(size: 10)).foregroundStyle(.secondary)
-
-                // ป้ายสถานะผิดปกติ — เป็นก้อนแยก จะได้ไม่ลากประโยคยาวไปตัดบรรทัดมั่ว
-                let flags = statusFlags(item)
-                if !flags.isEmpty {
-                    HStack(spacing: 5) {
-                        ForEach(flags, id: \.text) { flag in
-                            Text(flag.text)
-                                .font(.system(size: 9.5, weight: .medium))
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(flag.tint.opacity(0.16), in: Capsule())
-                                .foregroundStyle(flag.tint)
-                                .help(flag.hint)
-                        }
-                        Spacer(minLength: 0)
-                    }
+                if let note = rowFootnote(item, price: prefs.prices[item.id], now: now) {
+                    Text(note).font(.system(size: 10)).foregroundStyle(.secondary)
+                        .lineLimit(1)
+                } else {
+                    Color.clear.frame(height: 13)   // กันที่ไว้ ทุกการ์ดจะได้สูงเท่ากัน
                 }
             }
         }
@@ -356,67 +357,66 @@ struct PopoverView: View {
     }
 
 
-    /// ข้อความหลักฝั่งซ้าย — สั้นที่สุดที่ยังบอกอะไรได้
-    private func primaryDetail(_ item: UsageItem) -> String {
-        item.tokens > 0 ? item.tokensText : "ยังไม่เริ่มบล็อกใหม่"
+    /// เคยรู้เพดานมาก่อน (มี dataFetchedAt) แต่แคชเก่าจนหน้าต่างหมุนไปแล้ว — nil คือไม่ต้องขึ้นไอคอน
+    private func staleQuotaAge(_ item: UsageItem) -> TimeInterval? {
+        guard !item.isOfficial else { return nil }
+        return item.dataAge(now: now)
     }
 
-    private struct StatusFlag { let text: String; let tint: Color; let hint: String }
-
-    /// เฉพาะเรื่องที่ผิดปกติ — ปกติแล้วต้องว่าง ถ้าขึ้นทุกแถวผู้ใช้จะเลิกอ่าน
-    private func statusFlags(_ item: UsageItem) -> [StatusFlag] {
-        var flags: [StatusFlag] = []
-        if let active = item.activeLimit {
-            flags.append(StatusFlag(text: "ชนลิมิต \(active)", tint: .red,
-                                    hint: "โควตานี้เต็มแล้ว รอรีเซ็ตหรือสลับโมเดล"))
-        }
-        // รู้ว่ามีเพดาน แต่แคชเก่าจนหน้าต่างหมุนไปแล้ว — เปิด /usage ครั้งเดียวก็กลับมามีตัวเลข
-        if !item.isOfficial, let age = item.dataAge(now: now) {
-            flags.append(StatusFlag(text: "โควตาเก่า \(ageText(age))", tint: .orange,
-                                    hint: "เปิด /usage ใน Claude Code แล้วรอไม่เกิน 60 วินาที"))
-        } else if !item.isOfficial, item.local != true, item.error == nil {
-            flags.append(StatusFlag(text: "ยังไม่รู้เพดาน", tint: .secondary,
-                                    hint: "ผู้ให้บริการนี้ไม่ได้บอกโควตาคงเหลือมาในไฟล์ใดๆ"))
-        }
-        if certainty(confidence: item.confidence) == .atLeast {
-            flags.append(StatusFlag(text: "ใช้ต่อหลังเช็ค", tint: .secondary,
-                                    hint: "มีการใช้งานหลังตัวเลขล่าสุด ของจริงสูงกว่าที่แสดง"))
-        }
-        return flags
-    }
-
-    private func usageBar(label: String, pct: Double?, tint: Color, sure: Certainty) -> some View {
-        HStack(spacing: 8) {
-            Text(label).font(.system(size: 9, weight: .semibold, design: .rounded))
-                .foregroundStyle(.secondary).frame(width: 18, alignment: .leading)
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.secondary.opacity(0.16))
-                    if let pct, sure != .unknown {
-                        let known = geometry.size.width * min(1, max(0, pct / 100))
-                        Capsule().fill(model.designStyle == .colorful ? providerColorForTint(tint) : tint)
-                            .frame(width: known)
-                        if sure == .atLeast {
-                            Capsule().fill(tint.opacity(0.20))
-                                .frame(width: max(0, geometry.size.width - known)).offset(x: known)
-                        }
-                    } else {
-                        HStack(spacing: 4) {
-                            ForEach(0..<max(1, Int(geometry.size.width / 7)), id: \.self) { _ in
-                                Circle().fill(Color.secondary.opacity(0.38)).frame(width: 2, height: 2)
-                            }
+    /// รางกับแถบเปล่าๆ ไม่มีป้ายกับตัวเลข — สองอย่างนั้นกลายเป็นคอลัมน์ของตารางแล้ว
+    private func bar(_ window: WindowRow, tint: Color) -> some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.secondary.opacity(0.16))
+                if let pct = window.pct, window.sure != .unknown {
+                    let known = geometry.size.width * min(1, max(0, pct / 100))
+                    Capsule().fill(model.designStyle == .colorful ? providerColorForTint(tint) : tint)
+                        .frame(width: known)
+                    if window.sure == .atLeast {
+                        // lower_bound สื่อด้วยโซนจางนี้อย่างเดียว ห้ามเติมเครื่องหมาย ≥ กลับมา
+                        Capsule().fill(tint.opacity(0.20))
+                            .frame(width: max(0, geometry.size.width - known)).offset(x: known)
+                    }
+                } else {
+                    HStack(spacing: 4) {
+                        ForEach(0..<max(1, Int(geometry.size.width / 7)), id: \.self) { _ in
+                            Circle().fill(Color.secondary.opacity(0.38)).frame(width: 2, height: 2)
                         }
                     }
                 }
-            }.frame(height: 6)
-            Text(pctText(pct, sure)).font(.system(size: 10, weight: .medium, design: .rounded))
-                .monospacedDigit().frame(width: 36, alignment: .trailing)
-        }.frame(height: 14)
+            }
+        }.frame(height: 6)
     }
 
     private func providerColorForTint(_ tint: Color) -> Color {
         tint
     }
+}
+
+struct WindowRow {
+    let label: String
+    let pct: Double?
+    let sure: Certainty
+    let resetAt: Date?
+}
+
+/// สองแถวเสมอ ไม่ว่าถังนั้นจะมีข้อมูลหรือไม่ — ความสูงคงที่คือสิ่งที่ทำให้กวาดตาลงคอลัมน์ได้
+func windowRows(_ item: UsageItem) -> [WindowRow] {
+    [WindowRow(label: "5h", pct: item.pct,
+               sure: certainty(confidence: item.confidence), resetAt: item.resetAt),
+     WindowRow(label: "7d", pct: item.weekPct,
+               sure: certainty(confidence: item.weekConfidence ?? item.confidence),
+               resetAt: nil)]
+}
+
+/// บรรทัดเดียวใต้แถบ — สั้นพอที่จะไม่ตัดบรรทัด nil เมื่อไม่มีอะไรต้องบอก
+func rowFootnote(_ item: UsageItem, price: Price?, now: Date) -> String? {
+    if let error = item.error { return String(error.prefix(40)) }
+    if item.local == true { return nil }
+    var parts: [String] = []
+    if item.tokens > 0 { parts.append(item.tokensText) }
+    if let cost = costLabel(item, price: price) { parts.append(cost) }
+    return parts.isEmpty ? nil : parts.joined(separator: " · ")
 }
 
 struct ProviderLogo: View {
