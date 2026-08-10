@@ -125,4 +125,47 @@ final class MenuBarLabelTests: XCTestCase {
         let snap = snapshot([broken, named("Codex", "Codex", pct: 12, weekPct: 30)])
         XCTAssertEqual(menuBarUnits(snapshot: snap, pinned: []).map(\.id), ["Codex/Codex"])
     }
+
+    // MARK: - หมุดต้องไม่ทำให้โลโก้หาย
+
+    private func groupItem(_ group: String, _ label: String, pct: Double) -> UsageItem {
+        UsageItem(group: group, label: label, window: "5 ชม.", pct: pct,
+                  pctSource: "official", confidence: "valid",
+                  dataFetchedAt: now.addingTimeInterval(-60), severity: "normal")
+    }
+
+    func testPinsFilterSegmentsAndKeepLogos() {
+        let snap = snapshot([groupItem("Claude Code", "default", pct: 96),
+                             groupItem("Codex", "Codex", pct: 92)])
+        let segments = menuBarSegments(snapshot: snap, now: now, wokeRecently: false,
+                                       visibleGroups: ["Claude Code", "Codex"],
+                                       pinned: ["Codex/Codex"])
+        XCTAssertEqual(segments.map(\.group), ["Codex"])
+        XCTAssertFalse(segments[0].assetName.isEmpty, "โลโก้ต้องไม่หายตอนปักหมุด")
+    }
+
+    func testNoPinsShowsEveryVisibleGroup() {
+        let snap = snapshot([groupItem("Claude Code", "default", pct: 96),
+                             groupItem("Codex", "Codex", pct: 92)])
+        let segments = menuBarSegments(snapshot: snap, now: now, wokeRecently: false,
+                                       visibleGroups: ["Claude Code", "Codex"], pinned: [])
+        XCTAssertEqual(segments.count, 2, "ไม่ปัก = โชว์ทุกเจ้าที่เปิดไว้")
+    }
+
+    func testPinnedOrderDrivesSegmentOrder() {
+        let snap = snapshot([groupItem("Claude Code", "default", pct: 96),
+                             groupItem("Codex", "Codex", pct: 92)])
+        let segments = menuBarSegments(snapshot: snap, now: now, wokeRecently: false,
+                                       visibleGroups: ["Claude Code", "Codex"],
+                                       pinned: ["Codex/Codex", "Claude Code/default"])
+        XCTAssertEqual(segments.map(\.group), ["Codex", "Claude Code"])
+    }
+
+    func testPinToAMissingBucketFallsBackToShowingEverything() {
+        let snap = snapshot([groupItem("Claude Code", "default", pct: 96)])
+        let segments = menuBarSegments(snapshot: snap, now: now, wokeRecently: false,
+                                       visibleGroups: ["Claude Code"],
+                                       pinned: ["GLM/ที่หายไป"])
+        XCTAssertEqual(segments.count, 1, "ปักไปที่ถังที่ไม่มีแล้ว ต้องไม่ได้แถบว่าง")
+    }
 }

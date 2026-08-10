@@ -76,34 +76,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateBar() {
         guard let button = statusItem.button else { return }
         let snapshot = model.snapshot
-        let pinned = model.prefs.pinned
+        // เส้นทางเดียว — ปักหมุดแค่กรองว่าจะโชว์ตัวไหน ไม่เปลี่ยนวิธีวาด
+        let segments = menuBarSegments(snapshot: snapshot, now: Date(),
+                                       wokeRecently: wokeRecently,
+                                       visibleGroups: model.visibleGroups,
+                                       pinned: model.prefs.pinned)
+        let alert = hasUnpinnedCritical(snapshot: snapshot, pinned: model.prefs.pinned)
+        button.attributedTitle = segmentTitle(segments, alert: alert)
+        let age = snapshot.generated == .distantPast
+            ? nil : Date().timeIntervalSince(snapshot.generated)
+        button.alphaValue = freshness(snapshotAge: age, wokeRecently: wokeRecently) == .fresh
+            ? 1.0 : 0.55
+        button.image = nil
+    }
 
-        // ปักหมุดไว้ = ผู้ใช้เลือกเองว่าจะเห็นถังไหน แทนที่ตัวเลือกอัตโนมัติทั้งหมด
-        if !pinned.isEmpty {
-            let units = menuBarUnits(snapshot: snapshot, pinned: pinned)
-            let alert = hasUnpinnedCritical(snapshot: snapshot, pinned: pinned)
-            let snapshotAge = snapshot.generated == .distantPast
-                ? nil : Date().timeIntervalSince(snapshot.generated)
-            let state = freshness(snapshotAge: snapshotAge, wokeRecently: wokeRecently)
-
-            if units.count <= 1 {
-                let text = menuBarText(snapshot: snapshot, now: Date(), wokeRecently: wokeRecently)
-                button.attributedTitle = stackedTitle(text.top, text.bottom, alert: alert)
-                button.alphaValue = text.dimmed ? 0.55 : 1.0
-            } else {
-                let line = units.map(compactLine).joined(separator: "  ")
-                button.attributedTitle = singleTitle((alert ? "• " : "") + line)
-                button.alphaValue = state == .fresh ? 1.0 : 0.55
-            }
-            button.image = nil
-            return
-        }
-
-        // ไม่ปักเลย = อัตโนมัติ — โชว์ทุก provider ที่เลือกไว้ ทีละถังแยกไอคอน (ของเดิม)
-        let segments = menuBarSegments(snapshot: snapshot, now: Date(), wokeRecently: wokeRecently,
-                                       visibleGroups: model.visibleGroups)
+    private func segmentTitle(_ segments: [MenuBarSegment], alert: Bool) -> NSAttributedString {
         let title = NSMutableAttributedString()
         let font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        if alert {
+            title.append(NSAttributedString(string: "• ", attributes: [
+                .font: font, .foregroundColor: NSColor.systemRed]))
+        }
         for (index, segment) in segments.enumerated() {
             if index > 0 {
                 title.append(NSAttributedString(string: "   ", attributes: [.font: font]))
@@ -123,28 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if segments.isEmpty {
             title.append(NSAttributedString(string: "AI  —", attributes: [.font: font, .foregroundColor: NSColor.secondaryLabelColor]))
         }
-        button.attributedTitle = title
-        button.image = nil
-        button.alphaValue = 1.0
-    }
-
-    private func stackedTitle(_ top: String, _ bottom: String,
-                              alert: Bool) -> NSAttributedString {
-        let para = NSMutableParagraphStyle()
-        para.alignment = .right
-        para.maximumLineHeight = 10
-        return NSAttributedString(
-            string: (alert ? "• " : "") + top + "\n" + bottom,
-            attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .medium),
-                         .paragraphStyle: para,
-                         .foregroundColor: NSColor.labelColor])
-    }
-
-    private func singleTitle(_ line: String) -> NSAttributedString {
-        NSAttributedString(
-            string: line,
-            attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium),
-                         .foregroundColor: NSColor.labelColor])
+        return title
     }
 
     @objc private func togglePopover() {

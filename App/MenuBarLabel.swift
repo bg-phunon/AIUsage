@@ -16,7 +16,8 @@ struct MenuBarSegment: Equatable {
 /// แถบสั้นแบบ provider × เปอร์เซ็นต์ สำหรับพื้นที่ menu bar
 /// ไม่มีการสร้างตัวเลขขึ้นเอง: ถ้ายังวัดไม่ได้จะแสดง `—`
 func menuBarSegments(snapshot: UsageSnapshot, now: Date, wokeRecently: Bool,
-                     visibleGroups: Set<String> = ["Claude Code", "Qwen Cloud", "GLM", "Codex"]) -> [MenuBarSegment] {
+                     visibleGroups: Set<String> = ["Claude Code", "Qwen Cloud", "GLM", "Codex"],
+                     pinned: [String] = []) -> [MenuBarSegment] {
     let age = snapshot.generated == .distantPast ? nil : now.timeIntervalSince(snapshot.generated)
     let state = freshness(snapshotAge: age, wokeRecently: wokeRecently)
     let definitions: [(String, String, String)] = [
@@ -25,7 +26,7 @@ func menuBarSegments(snapshot: UsageSnapshot, now: Date, wokeRecently: Bool,
         ("GLM", "zai", "#B087E8"),
         ("Codex", "openai", "#67C587"),
     ]
-    return definitions.compactMap { group, symbol, color in
+    let all: [MenuBarSegment] = definitions.compactMap { group, symbol, color in
         guard visibleGroups.contains(group) else { return nil }
         let candidates = snapshot.items.filter { $0.group == group && $0.error == nil && $0.local != true }
         guard let item = candidates.max(by: { ($0.displayPct ?? -1) < ($1.displayPct ?? -1) }) else { return nil }
@@ -39,6 +40,13 @@ func menuBarSegments(snapshot: UsageSnapshot, now: Date, wokeRecently: Bool,
         }
         return MenuBarSegment(group: group, assetName: symbol, value: value, color: color)
     }
+    guard !pinned.isEmpty else { return all }
+    // หมุดเป็น "ตัวกรอง" ไม่ใช่ "โหมดใหม่" — โลโก้และการจัดวางต้องเหมือนเดิมทุกอย่าง
+    let pinnedGroups = pinned.compactMap { id -> String? in
+        snapshot.items.first { $0.id == id }?.group
+    }
+    let filtered = pinnedGroups.compactMap { group in all.first { $0.group == group } }
+    return filtered.isEmpty ? all : filtered
 }
 
 func menuBarText(snapshot: UsageSnapshot, now: Date, wokeRecently: Bool) -> MenuBarText {
