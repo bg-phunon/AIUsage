@@ -124,7 +124,7 @@ struct PopoverView: View {
                 .background(model.designStyle.accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 1) {
                 Text("AI Usage").font(.system(size: 14, weight: .semibold))
-                Text("โควตาตามบัญชีและ provider").font(.system(size: 10)).foregroundStyle(.secondary)
+                Text("โควตาตามบัญชีและ provider").font(.system(size: 10)).foregroundStyle(.primary.opacity(0.60))
             }
             Spacer()
             Button { refreshEngine() } label: {
@@ -143,14 +143,18 @@ struct PopoverView: View {
 
     @ViewBuilder private var panelBackground: some View {
         switch model.designStyle {
+        // ทุกแบบต้องมีชั้นทึบรองเสมอ — vibrancy อย่างเดียวปล่อยให้วอลเปเปอร์
+        // ทะลุขึ้นมาจนตัวหนังสืออ่านไม่ออก ความอ่านออกมาก่อนความสวย
         case .darkGlass:
             ZStack {
-                // ไม่มีก้อนแสงตกแต่ง — เคยลองแล้วมันกลบตัวเลขจนอ่านไม่ออก
-                // SwiftUI ไม่มี backdrop-filter ที่จะกรองมันให้จางเหมือนในเว็บ
-                VisualEffectBackground(material: .hudWindow)
+                VisualEffectBackground(material: .popover)
+                Color(red: 0.09, green: 0.09, blue: 0.11).opacity(0.90)
             }
         case .native:
-            VisualEffectBackground(material: .popover)
+            ZStack {
+                VisualEffectBackground(material: .popover)
+                Color(nsColor: .windowBackgroundColor).opacity(0.86)
+            }
         case .colorful:
             LinearGradient(colors: [Color(red: 0.07, green: 0.05, blue: 0.18),
                                     Color(red: 0.025, green: 0.045, blue: 0.10)],
@@ -246,7 +250,7 @@ struct PopoverView: View {
                                           : "ผู้ให้บริการนี้ไม่ได้บอกโควตาคงเหลือมาในไฟล์ใดๆ")
                             }
                         }
-                        Text(item.label).font(.system(size: 10)).foregroundStyle(.secondary)
+                        Text(item.label).font(.system(size: 10.5)).foregroundStyle(.primary.opacity(0.66))
                     }
                     if let plan = item.plan { Text(plan).font(.system(size: 9, weight: .medium))
                         .padding(.horizontal, 6).padding(.vertical, 2)
@@ -254,17 +258,16 @@ struct PopoverView: View {
                     Spacer()
                     if item.error != nil {
                         Text("พัง").font(.system(size: 10, weight: .semibold)).foregroundStyle(.red)
-                    } else {
-                        Text(pctText(item.pct ?? item.weekPct, headlineCertainty))
-                            .font(.system(size: 12, weight: .medium)).monospacedDigit()
                     }
+                    // ไม่มีตัวเลขใหญ่ตรงนี้ — ตารางข้างล่างบอกครบแล้วว่าหน้าต่างไหนเท่าไหร่
+                    // ตัวเลขเดียวที่ไม่บอกว่าเป็นของ 5h หรือ 7d ทำให้สับสนมากกว่าช่วย
                 }
                 // ตารางสองแถวเสมอ (5h, 7d) — ความยาวคงที่ทำให้ทุกการ์ดสูงเท่ากันและกวาดตาลงคอลัมน์ได้
                 ForEach(windowRows(item), id: \.label) { window in
                     HStack(spacing: 8) {
                         Text(window.label)
-                            .font(.system(size: 9, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.primary.opacity(0.62))
                             .frame(width: 20, alignment: .leading)
                         bar(window, tint: item.tint)
                         Text(pctText(window.pct, window.sure))

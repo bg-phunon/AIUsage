@@ -32,7 +32,7 @@ enum DesignStyle: String, CaseIterable, Identifiable {
         let stops: [Color]
         switch self {
         case .darkGlass:
-            stops = [Color.white.opacity(0.115), Color.white.opacity(0.055), Color.white.opacity(0.085)]
+            stops = [Color.white.opacity(0.10), Color.white.opacity(0.06), Color.white.opacity(0.08)]
         case .native:
             stops = [Color.primary.opacity(0.075), Color.primary.opacity(0.045), Color.primary.opacity(0.06)]
         case .colorful:
