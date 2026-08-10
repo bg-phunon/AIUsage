@@ -31,7 +31,10 @@ struct PopoverView: View {
     // คนละตัว ถ้า view ดูแค่ model ปุ่มหมุดจะกดแล้วค่าบันทึกจริงแต่จอไม่วาดใหม่
     @ObservedObject var prefs: Preferences
     @State private var now = Date()
-    private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    // ทุก 20 วิพอ — นับถอยหลังละเอียดระดับนาทีอยู่แล้ว
+    // การวาดใหม่ทุกวินาทีทำให้พื้นที่ tooltip ถูกลงทะเบียนใหม่ตลอด
+    // hover ค้างอยู่ระหว่างนั้น tooltip จะไปโผล่ผิดที่
+    private let tick = Timer.publish(every: 20, on: .main, in: .common).autoconnect()
 
     private var snapshotAge: TimeInterval? {
         model.snapshot.generated == .distantPast ? nil : now.timeIntervalSince(model.snapshot.generated)
@@ -79,6 +82,7 @@ struct PopoverView: View {
                 .stroke(Color.white.opacity(model.designStyle == .native ? 0.08 : 0.16), lineWidth: 1)
         }
         .onReceive(tick) { now = $0 }
+        .onAppear { now = Date() }   // เปิด popover แล้วเวลาต้องสดทันที ไม่รอ tick แรก
     }
 
 
@@ -129,7 +133,7 @@ struct PopoverView: View {
                 .padding(.horizontal, 14).padding(.vertical, 8)
             }
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 8) {
                     ForEach(displayItems) { item in row(item) }
                     if displayItems.isEmpty {
                         Text("ยังไม่มีข้อมูล").foregroundStyle(.secondary)
@@ -537,9 +541,18 @@ struct ProviderLogo: View {
         }
     }
 
+    /// แคชข้ามทุก instance — เดิมอ่าน SVG จากดิสก์ใหม่ทุกครั้งที่วาด (ทุกแถว ทุก tick)
+    private static var cache: [String: NSImage] = [:]
+    private static func image(_ asset: String) -> NSImage? {
+        if let hit = cache[asset] { return hit }
+        guard let url = Bundle.main.url(forResource: asset, withExtension: "svg"),
+              let img = NSImage(contentsOf: url) else { return nil }
+        cache[asset] = img
+        return img
+    }
+
     var body: some View {
-        if let asset, let url = Bundle.main.url(forResource: asset, withExtension: "svg"),
-           let nsImage = NSImage(contentsOf: url) {
+        if let asset, let nsImage = Self.image(asset) {
             Image(nsImage: nsImage).renderingMode(.template).resizable().scaledToFit()
                 .foregroundStyle(tint).frame(width: size, height: size)
         } else {
