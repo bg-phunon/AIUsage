@@ -79,7 +79,7 @@ struct PopoverView: View {
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.white.opacity(model.designStyle == .native ? 0.08 : 0.16), lineWidth: 1)
+                .stroke(Color.white.opacity(model.designStyle == .colorful ? 0.16 : 0.09), lineWidth: 1)
         }
         .onReceive(tick) { now = $0 }
         .onAppear { now = Date() }   // เปิด popover แล้วเวลาต้องสดทันที ไม่รอ tick แรก
@@ -139,7 +139,7 @@ struct PopoverView: View {
             .padding(.horizontal, 14).padding(.vertical, 8)
             .frame(height: 30)
             ScrollView {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 9) {
                     ForEach(displayItems) { item in row(item) }
                     if displayItems.isEmpty {
                         Text("ยังไม่มีข้อมูล").foregroundStyle(.secondary)
@@ -153,15 +153,14 @@ struct PopoverView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 9) {
+            // ไม่มีกล่องรองไอคอน — chrome ยิ่งน้อย กระจกยิ่งเบา
             Image(systemName: "chart.bar.xaxis")
-                .font(.system(size: 19, weight: .semibold))
+                .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(model.designStyle.accent)
-                .frame(width: 30, height: 30)
-                .background(model.designStyle.accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 1) {
-                Text("AI Usage").font(.system(size: 14, weight: .semibold))
-                Text("โควตาตามบัญชีและ provider").font(.system(size: 10)).foregroundStyle(.primary.opacity(0.60))
+                Text("AI Usage").font(.system(size: 13.5, weight: .semibold))
+                Text("โควตาตามบัญชีและ provider").font(.system(size: 10)).foregroundStyle(.primary.opacity(0.55))
             }
             Spacer()
             Button { refreshEngine() } label: {
@@ -183,9 +182,11 @@ struct PopoverView: View {
         // ทุกแบบต้องมีชั้นทึบรองเสมอ — vibrancy อย่างเดียวปล่อยให้วอลเปเปอร์
         // ทะลุขึ้นมาจนตัวหนังสืออ่านไม่ออก ความอ่านออกมาก่อนความสวย
         case .darkGlass:
+            // hudWindow blur แรงกว่า popover — ชั้นทึบจึงบางลงได้โดยตัวหนังสือยังอ่านออก
+            // (บทเรียนเดิมคือ "ห้ามใสสนิท" ไม่ใช่ "ต้องทึบ 90%")
             ZStack {
-                VisualEffectBackground(material: .popover)
-                Color(red: 0.09, green: 0.09, blue: 0.11).opacity(0.90)
+                VisualEffectBackground(material: .hudWindow)
+                Color(red: 0.07, green: 0.07, blue: 0.10).opacity(0.62)
             }
         case .native:
             ZStack {
@@ -229,7 +230,7 @@ struct PopoverView: View {
 
     private var chromeFill: Color {
         switch model.designStyle {
-        case .darkGlass: return Color.black.opacity(0.10)
+        case .darkGlass: return Color.white.opacity(0.02)
         case .native: return Color.primary.opacity(0.035)
         case .colorful: return Color.black.opacity(0.14)
         }
@@ -300,7 +301,7 @@ struct PopoverView: View {
                     }
                     if let plan = item.plan { Text(plan).font(.system(size: 9, weight: .medium))
                         .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(providerColor(item.group).opacity(0.15)).clipShape(Capsule()) }
+                        .background(providerColor(item.group).opacity(0.10)).clipShape(Capsule()) }
                     Spacer()
                     if item.error != nil {
                         Text("พัง").font(.system(size: 10, weight: .semibold)).foregroundStyle(.red)
@@ -333,21 +334,21 @@ struct PopoverView: View {
                 }
             }
         }
-        .padding(11)
+        .padding(12)
         .background {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 15, style: .continuous)
                 .fill(model.designStyle == .colorful
                       ? AnyShapeStyle(cardFill(for: item))
                       : AnyShapeStyle(model.designStyle.cardGradient))
         }
         .overlay {
-            // ขอบนอก + ขอบสว่างด้านบน ซ้อนกันสองชั้นตามดีไซน์
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(cardStroke(for: item), lineWidth: 1)
+            // ขอบชั้นเดียว + แสงขอบบนจางๆ — สองเส้นหนาซ้อนกันคือสิ่งที่ทำให้ดู "หนา"
+            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                .stroke(cardStroke(for: item), lineWidth: 0.5)
                 .overlay {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    RoundedRectangle(cornerRadius: 15, style: .continuous)
                         .strokeBorder(model.designStyle.rimHighlight, lineWidth: 1)
-                        .opacity(0.55)
+                        .opacity(model.designStyle == .colorful ? 0.55 : 0.35)
                 }
         }
         .shadow(color: model.designStyle == .native ? Color.black.opacity(0.07) : .clear,
@@ -371,7 +372,7 @@ struct PopoverView: View {
                     if let plan = item.plan {
                         Text(plan).font(.system(size: 9, weight: .medium))
                             .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(providerColor(item.group).opacity(0.15)).clipShape(Capsule())
+                            .background(providerColor(item.group).opacity(0.10)).clipShape(Capsule())
                     }
                     // สัญญาณเดียวกับการ์ดเต็ม — ผู้ใช้ยังเห็นว่าทำไมไม่มีเลข
                     if let age = staleQuotaAge(item) {
@@ -431,7 +432,7 @@ struct PopoverView: View {
         switch model.designStyle {
         case .colorful: return providerColor(item.group).opacity(0.32)
         case .native: return Color.primary.opacity(0.09)
-        case .darkGlass: return Color.white.opacity(0.09)
+        case .darkGlass: return Color.white.opacity(0.12)
         }
     }
 
@@ -447,12 +448,12 @@ struct PopoverView: View {
 
     @ViewBuilder private func providerMark(_ group: String) -> some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(providerColor(group).opacity(model.designStyle == .native ? 0.10 : 0.18))
-            ProviderLogo(group: group, size: 18,
+            RoundedRectangle(cornerRadius: 8.5, style: .continuous)
+                .fill(providerColor(group).opacity(model.designStyle == .colorful ? 0.18 : 0.10))
+            ProviderLogo(group: group, size: 17,
                          tint: model.designStyle == .colorful ? providerColor(group) : .primary)
         }
-        .frame(width: 30, height: 30)
+        .frame(width: 29, height: 29)
     }
 
     private func pctText(_ pct: Double?, _ certaintyValue: Certainty) -> String {
@@ -477,7 +478,7 @@ struct PopoverView: View {
     private func bar(_ window: WindowRow, tint: Color) -> some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.secondary.opacity(0.16))
+                Capsule().fill(Color.secondary.opacity(0.12))
                 if let pct = window.pct, window.sure != .unknown {
                     let known = geometry.size.width * min(1, max(0, pct / 100))
                     Capsule().fill(model.designStyle == .colorful ? providerColorForTint(tint) : tint)
@@ -495,7 +496,7 @@ struct PopoverView: View {
                     }
                 }
             }
-        }.frame(height: 6)
+        }.frame(height: 4)
     }
 
     private func providerColorForTint(_ tint: Color) -> Color {
