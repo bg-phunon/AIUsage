@@ -155,11 +155,6 @@ struct UsageSnapshot: Codable {
         guard let data = try? Data(contentsOf: fileURL) else { return .empty }
         return decode(from: data) ?? .empty
     }
-
-    var worst: UsageItem? {
-        items.filter { $0.error == nil && $0.displayPct != nil }
-            .max { ($0.displayPct ?? 0) < ($1.displayPct ?? 0) }
-    }
 }
 
 func countdownText(to date: Date?, from now: Date) -> String {

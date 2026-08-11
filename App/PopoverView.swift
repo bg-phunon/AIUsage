@@ -263,10 +263,6 @@ struct PopoverView: View {
     }
 
     @ViewBuilder private func row(_ item: UsageItem) -> some View {
-        let sessionCertainty = item.error == nil ? certainty(confidence: item.confidence) : .unknown
-        let weekCertainty = item.error == nil ? certainty(confidence: item.weekConfidence ?? item.confidence) : .unknown
-        let headlineCertainty = item.pct == nil ? weekCertainty : sessionCertainty
-        let _ = (sessionCertainty, weekCertainty, headlineCertainty)  // ใช้ในกิ่งเต็มเท่านั้น
         if item.error == nil && displayableWindows(item).isEmpty {
             compactRow(item)
         } else {

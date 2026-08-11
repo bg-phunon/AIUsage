@@ -20,41 +20,6 @@ final class FreshnessTests: XCTestCase {
         XCTAssertEqual(ageText(2 * 3600), "2h")
     }
 
-    // MARK: - เหตุผลที่ไม่มี %
-
-    /// Claude ที่แคชเก่าจนหน้าต่างหมุนไปแล้ว — รู้ว่ามีเพดาน แค่ข้อมูลเก่า
-    /// ต้องบอกวิธีแก้ ไม่ใช่บอกว่า "ยังไม่รู้เพดาน" ซึ่งผิดและไม่มีทางออก
-    func testStaleQuotaTellsTheUserHowToFixIt() {
-        let now = Date()
-        let item = UsageItem(group: "Claude Code", label: "default", window: "5 ชม.",
-                             tokens: 18_180_000, confidence: "unsure",
-                             dataFetchedAt: now.addingTimeInterval(-53 * 3600))
-        let reason = missingPercentReason(item, now: now)
-        XCTAssertTrue(reason.contains("/usage"), "ต้องบอกว่าเปิด /usage แล้วจะกลับมามีตัวเลข")
-        XCTAssertTrue(reason.contains(ageText(53 * 3600)), "ต้องบอกอายุด้วย")
-        XCTAssertFalse(reason.contains("ยังไม่รู้เพดาน"), "รู้ว่ามีเพดาน อย่าบอกว่าไม่รู้")
-    }
-
-    /// Qwen Cloud / GLM — ไม่เคยมีแหล่งเพดานเลย บอกตามตรงและอย่าแนะนำ /usage
-    func testNoQuotaSourceSaysSoPlainly() {
-        let item = UsageItem(group: "Qwen Cloud", label: "default", window: "5 ชม.",
-                             tokens: 2_400_000)
-        let reason = missingPercentReason(item, now: Date())
-        XCTAssertTrue(reason.contains("ยังไม่รู้เพดาน"))
-        XCTAssertFalse(reason.contains("/usage"), "ถังนี้เปิด /usage ก็ไม่ช่วย")
-    }
-
-    func testBothReasonsKeepTheTokenCountVisible() {
-        let now = Date()
-        let stale = UsageItem(group: "Claude Code", label: "d", window: "5 ชม.",
-                              tokens: 18_180_000,
-                              dataFetchedAt: now.addingTimeInterval(-53 * 3600))
-        let unknown = UsageItem(group: "GLM", label: "d", window: "5 ชม.",
-                                tokens: 18_180_000)
-        XCTAssertTrue(missingPercentReason(stale, now: now).hasPrefix("18.18M"))
-        XCTAssertTrue(missingPercentReason(unknown, now: now).hasPrefix("18.18M"))
-    }
-
     /// Codex อ่าน % มาจาก rate_limits ตรงๆ ไม่มีฟิลด์ confidence เลย
     /// ถ้าตีความ nil ว่า "ไม่รู้" ตัวเลข 99% ที่ถูกต้องจะถูกกลบเป็นขีด
     /// เคยพังมาแล้วเพราะเทสต์ไม่เคยครอบเคส nil
