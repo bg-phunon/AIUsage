@@ -31,11 +31,11 @@ Shared/Appearance.swift      ธีมของ popover (3 แบบ)
 - ห้ามเปิด App Sandbox เพราะ `NSHomeDirectory()` ต้องชี้ไป home จริง
 - deployment target คือ macOS 14.0
 - แอปเรียก engine เอง ไม่ใช้ launchd และไม่ใช้ WidgetKit
-- ห้ามอ่านหรือส่งต่อ `ANTHROPIC_AUTH_TOKEN` / credentials
+- ห้ามอ่านหรือส่งต่อ `ANTHROPIC_AUTH_TOKEN` / credentials — ข้อยกเว้นเดียว (ผู้ใช้อนุมัติ 2026-08-11): `engine/aiusage/liveusage.py` อ่าน OAuth token ของ Claude Code จาก Keychain เพื่อเรียก endpoint usage ของ Anthropic เท่านั้น ห้าม log/print/เขียนลงไฟล์ และห้ามส่งไป host อื่นเด็ดขาด
 - ถ้าไม่มีเพดานหรือข้อมูลไม่แน่ใจ ห้ามแสดงแถบทึบเป็นตัวเลข
 - ห้ามแสดง `$0.00` เมื่อ `costKnown` เป็น false — ศูนย์ที่แปลว่า "ไม่รู้" อ่านเป็น "ฟรี" (`PRICES` มีแค่โมเดล Anthropic ถังอื่นต้องคืน `cost: null`)
 - ถังกำหนดจาก `ANTHROPIC_BASE_URL` ใน `~/.ccs/*.settings.json` ไม่ใช่ชื่อโมเดล — เช่น `deepseek-v4-flash-0731` คือช่อง Sonnet ของแผน Qwen Cloud ไม่ใช่บัญชี DeepSeek แยกต่างหาก
-- `cachedUsageUtilization` คือแหล่ง % ทางการของ Claude รีเฟรชเฉพาะตอนเปิด `/usage` หรือเริ่ม session ใหม่เท่านั้น ไม่รีเฟรชระหว่าง session — พอหน้าต่างหมุนไป (ราว 2 วัน) แอปจะรายงาน "ไม่แน่ใจ" (ไม่มี %) พร้อม token ดิบและคำแนะนำให้เปิด `/usage`
+- % ทางการของ Claude มาจากสองทาง: (1) `liveusage.py` ถาม endpoint สดทุกรอบ (2) ถ้าล้มเหลว ตกกลับไป `cachedUsageUtilization` ซึ่งรีเฟรชเฉพาะตอนเปิด `/usage` หรือเริ่ม session ใหม่ — เก่าได้เป็นวันและจะรายงาน "ไม่แน่ใจ" เมื่อหน้าต่างหมุนไป
 
 ## ตรวจว่าใช้ได้จริง
 

@@ -40,6 +40,27 @@ def _config_paths(config_dir: str):
     return (os.path.join(config_dir, ".claude.json"), stripped + ".json")
 
 
+def windows_from_limits(raw_limits) -> List[Window]:
+    """แปลง limits (รูปเดียวกันทั้งในแคชและ response สดจาก endpoint) เป็น Window"""
+    windows = []
+    for lim in raw_limits or []:
+        if not isinstance(lim, dict):
+            continue
+        resets = _parse_ts(lim.get("resets_at"))
+        if resets is None:
+            continue
+        scope_obj = (lim.get("scope") or {}).get("model") or {}
+        windows.append(Window(
+            kind=str(lim.get("kind") or "unknown"),
+            percent=float(lim.get("percent") or 0),
+            resets_at=resets,
+            severity=str(lim.get("severity") or "normal"),
+            scope=scope_obj.get("display_name") or None,
+            is_active=bool(lim.get("is_active")),
+        ))
+    return windows
+
+
 def read_utilization(config_dir: str) -> Optional[Utilization]:
     for path in _config_paths(config_dir):
         try:
@@ -54,23 +75,7 @@ def read_utilization(config_dir: str) -> Optional[Utilization]:
         if not isinstance(fetched_ms, (int, float)):
             continue
         fetched_at = datetime.fromtimestamp(fetched_ms / 1000, timezone.utc)
-        raw_limits = ((cached.get("utilization") or {}).get("limits")) or []
-        windows = []
-        for lim in raw_limits:
-            if not isinstance(lim, dict):
-                continue
-            resets = _parse_ts(lim.get("resets_at"))
-            if resets is None:
-                continue
-            scope_obj = (lim.get("scope") or {}).get("model") or {}
-            windows.append(Window(
-                kind=str(lim.get("kind") or "unknown"),
-                percent=float(lim.get("percent") or 0),
-                resets_at=resets,
-                severity=str(lim.get("severity") or "normal"),
-                scope=scope_obj.get("display_name") or None,
-                is_active=bool(lim.get("is_active")),
-            ))
+        windows = windows_from_limits((cached.get("utilization") or {}).get("limits"))
         if windows:
             return Utilization(fetched_at=fetched_at, windows=windows)
     return None

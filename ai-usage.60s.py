@@ -11,8 +11,9 @@
 # <swiftbar.refreshOnOpen>true</swiftbar.refreshOnOpen>
 # <swiftbar.runInBash>false</swiftbar.runInBash>
 #
-# อ่านจากไฟล์ log ในเครื่องเท่านั้น — ไม่เรียก API ของ Anthropic/OpenAI
-# จึงไม่กินโควตาและไม่แตะ credential
+# แหล่งหลักคือไฟล์ log ในเครื่อง — ไม่กินโควตาโมเดล
+# ข้อยกเว้นเดียว (ผู้ใช้อนุมัติ 2026-08-11): ถาม % สดจาก endpoint usage ของ
+# Anthropic ด้วย OAuth token ใน Keychain — ดูกติกาใน engine/aiusage/liveusage.py
 #
 # ติดตั้ง:  brew install --cask swiftbar
 #          cp ai-usage.60s.py ~/Library/Application\ Support/SwiftBar/Plugins/
@@ -36,6 +37,7 @@ SELF = os.path.abspath(__file__)
 
 sys.path.insert(0, os.path.join(os.path.dirname(SELF), "engine"))
 from aiusage import buckets as _buckets  # noqa: E402
+from aiusage import liveusage as _liveu  # noqa: E402
 from aiusage import utilization as _util  # noqa: E402
 from aiusage import quota429 as _q429  # noqa: E402
 
@@ -438,7 +440,9 @@ def claude_account_stats(acc):
         "models": sorted({m.split("-")[1] for _, _, m in entries[-40:] if m.count("-") >= 1}),
         "plan": account_plan(acc["dir"]),
         "budget5hAuto": calibrate_budget5h(entries, hits),
-        "utilization": _util.read_utilization(acc["dir"]),
+        # สดก่อน แคชทีหลัง — endpoint ล่ม/token หมดอายุ/ผู้ใช้ Deny คีย์เชน
+        # ทุกกรณีตกกลับมาที่พฤติกรรมเดิมโดยไม่มีอะไรพัง
+        "utilization": _liveu.fetch_utilization(acc["dir"]) or _util.read_utilization(acc["dir"]),
         "lastActivity": entries[-1][0] if entries else None,
         "costKnown": costs_known(entries),
     }
