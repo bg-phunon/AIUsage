@@ -67,15 +67,27 @@ struct SettingsView: View {
 
     /// ป้ายบัญชี (de/mo/wo) บนแถบเมนู — ใต้โลโก้ประหยัดที่ · ข้างโลโก้อ่านง่ายกว่า
     private var tagPositionToggle: some View {
+        VStack(spacing: 0) {
+            toggleRow(title: "ป้ายบัญชีใต้โลโก้",
+                      subtitle: "ปิดแล้วป้ายจะอยู่ข้างโลโก้แทน",
+                      isOn: Binding(get: { prefs.tagBelowLogo },
+                                    set: { prefs.setTagBelowLogo($0) }))
+            toggleRow(title: "เปิดเองตอนเข้าระบบ",
+                      subtitle: "ขึ้นบนแถบเมนูทันทีที่เข้าเครื่อง ไม่ต้องเปิดแอปเอง",
+                      isOn: Binding(get: { prefs.launchAtLogin },
+                                    set: { prefs.setLaunchAtLogin($0)
+                                             LaunchAtLogin.set($0) }))
+        }
+    }
+
+    private func toggleRow(title: String, subtitle: String, isOn: Binding<Bool>) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 1) {
-                Text("ป้ายบัญชีใต้โลโก้").font(.system(size: 12, weight: .semibold))
-                Text("ปิดแล้วป้ายจะอยู่ข้างโลโก้แทน").font(.system(size: 10))
-                    .foregroundStyle(.secondary)
+                Text(title).font(.system(size: 12, weight: .semibold))
+                Text(subtitle).font(.system(size: 10)).foregroundStyle(.secondary)
             }
             Spacer()
-            Toggle("", isOn: Binding(get: { prefs.tagBelowLogo },
-                                     set: { prefs.setTagBelowLogo($0) }))
+            Toggle("", isOn: isOn)
                 .toggleStyle(.switch).controlSize(.mini).labelsHidden()
         }
         .padding(.horizontal, 14).padding(.vertical, 10)

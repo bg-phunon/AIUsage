@@ -53,6 +53,9 @@ xcodebuild -project AIUsage.xcodeproj -scheme AIUsage -configuration Release \
 APP="$ROOT/build/Build/Products/Release/${APP_NAME}.app"
 [ -d "$APP" ] || { echo "  build ไม่ได้ .app — ดู /tmp/aiusage-build.log"; exit 1; }
 
+# ad-hoc sign — SMAppService (เปิดเองตอนเข้าระบบ) ปฏิเสธแอปที่ไม่มีลายเซ็นเลย
+codesign --force --deep -s - "$APP" 2>/dev/null || echo "  (เซ็น ad-hoc ไม่ได้ — login item อาจใช้ไม่ได้)"
+
 echo "▸ 4/4 ติดตั้ง"
 quit_app
 rm -rf "$INSTALLED"

@@ -109,6 +109,14 @@ final class PreferencesTests: XCTestCase {
         XCTAssertFalse(Preferences(defaults: defaults).tagBelowLogo, "ต้องอ่านค่าที่ตั้งไว้กลับมาได้")
     }
 
+    /// เปิดเองตอนเข้าระบบ: ค่าเริ่มต้นเปิด และการปิดต้องรอดข้าม restart
+    func testLaunchAtLoginDefaultsTrueAndPersists() {
+        XCTAssertTrue(Preferences(defaults: defaults).launchAtLogin)
+        let prefs = Preferences(defaults: defaults)
+        prefs.setLaunchAtLogin(false)
+        XCTAssertFalse(Preferences(defaults: defaults).launchAtLogin)
+    }
+
     // MARK: - ย้ายกลไก visibleMenuBarProviders เดิมมาเป็น hidden
 
     /// ผู้ใช้เคยตั้ง visibleMenuBarProviders ไว้ ต้องไม่หายตอนรวมกลไก

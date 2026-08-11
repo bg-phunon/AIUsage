@@ -19,6 +19,7 @@ final class Preferences: ObservableObject {
         static let hidden = "hidden"
         static let prices = "prices"
         static let tagBelowLogo = "tagBelowLogo"
+        static let launchAtLogin = "launchAtLogin"
     }
 
     private let defaults: UserDefaults
@@ -28,6 +29,9 @@ final class Preferences: ObservableObject {
     @Published private(set) var prices: [String: Price]
     /// ป้ายบัญชี (de/mo/wo) อยู่ใต้โลโก้หรือข้างโลโก้ — ใต้ประหยัดที่แนวนอนกว่า
     @Published private(set) var tagBelowLogo: Bool
+    /// เปิดแอปเองตอนเข้าระบบ — ค่าเริ่มต้นเปิด เพราะ widget โควตาที่ต้องเปิดเอง
+    /// ทุกเช้าคือ widget ที่จะถูกลืม (การ register จริงอยู่ที่ LaunchAtLogin ฝั่งแอป)
+    @Published private(set) var launchAtLogin: Bool
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -36,6 +40,8 @@ final class Preferences: ObservableObject {
         prices = Self.decodePrices(defaults.data(forKey: Key.prices))
         tagBelowLogo = defaults.object(forKey: Key.tagBelowLogo) == nil
             ? true : defaults.bool(forKey: Key.tagBelowLogo)
+        launchAtLogin = defaults.object(forKey: Key.launchAtLogin) == nil
+            ? true : defaults.bool(forKey: Key.launchAtLogin)
     }
 
     var maxPins: Int { Self.maxPins }
@@ -71,6 +77,11 @@ final class Preferences: ObservableObject {
     func setTagBelowLogo(_ below: Bool) {
         tagBelowLogo = below
         defaults.set(below, forKey: Key.tagBelowLogo)
+    }
+
+    func setLaunchAtLogin(_ enabled: Bool) {
+        launchAtLogin = enabled
+        defaults.set(enabled, forKey: Key.launchAtLogin)
     }
 
     /// ย้ายค่าจากกลไกเดิม (ซ่อนราย group สำหรับแถบเมนู) มาเป็น hidden ราย bucket

@@ -23,6 +23,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         // ครั้งเดียวตอนเปิดแอป — model.snapshot โหลดมาแล้วตั้งแต่ตอน UsageModel() ถูกสร้าง
         model.prefs.migrateVisibleGroups(.standard, allItems: model.snapshot.items)
 
+        // เปิดเครื่องแล้วแอปต้องขึ้นเอง — ไม่มีใครจำได้ว่าต้องเปิด widget ทุกเช้า
+        LaunchAtLogin.sync(wanted: model.prefs.launchAtLogin)
+
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.action = #selector(togglePopover)
         statusItem.button?.target = self
