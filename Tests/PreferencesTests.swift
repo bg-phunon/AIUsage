@@ -131,4 +131,19 @@ final class PreferencesTests: XCTestCase {
         prefs.migrateVisibleGroups(defaults, allItems: [])
         XCTAssertTrue(prefs.hidden.isEmpty)
     }
+
+    /// เครื่องที่เอนจินยังไม่เคยเขียน snapshot — ค่าเดิมของผู้ใช้ห้ามหายไปเฉยๆ
+    /// ต้องเก็บคีย์ไว้รอรอบที่มี snapshot จริง ไม่ใช่ลบทิ้งทั้งที่ยังไม่ได้ย้ายอะไร
+    func testMigrationWaitsForARealSnapshotBeforeDeletingTheOldKey() {
+        defaults.set(["Claude Code"], forKey: "visibleMenuBarProviders")
+        let prefs = Preferences(defaults: defaults)
+        prefs.migrateVisibleGroups(defaults, allItems: [])
+        XCTAssertEqual(defaults.stringArray(forKey: "visibleMenuBarProviders"),
+                       ["Claude Code"], "คีย์เดิมต้องยังอยู่จนกว่าจะได้ย้ายจริง")
+
+        let items = [UsageItem(group: "GLM", label: "default", window: "5 ชม.")]
+        prefs.migrateVisibleGroups(defaults, allItems: items)
+        XCTAssertFalse(prefs.isVisible("GLM/default"), "รอบที่มี snapshot แล้วต้องย้ายตามปกติ")
+        XCTAssertNil(defaults.array(forKey: "visibleMenuBarProviders"))
+    }
 }

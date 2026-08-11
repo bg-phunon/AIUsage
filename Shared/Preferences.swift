@@ -68,6 +68,9 @@ final class Preferences: ObservableObject {
     func migrateVisibleGroups(_ defaults: UserDefaults, allItems: [UsageItem]) {
         let key = "visibleMenuBarProviders"
         guard let visible = defaults.stringArray(forKey: key) else { return }
+        // snapshot ยังว่าง (เครื่องใหม่ เอนจินยังไม่เคยรัน) = ยังไม่รู้จะย้ายอะไร
+        // ต้องเก็บคีย์เดิมไว้รอรอบหน้า ไม่ใช่ลบทิ้งทั้งที่ยังไม่ได้ย้าย
+        guard !allItems.isEmpty else { return }
         let visibleSet = Set(visible)
         for item in allItems where !visibleSet.contains(item.group) {
             hidden.insert(item.id)
