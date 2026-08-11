@@ -105,7 +105,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             ? nil : Date().timeIntervalSince(snapshot.generated)
         let dimmed = freshness(snapshotAge: age, wokeRecently: wokeRecently) != .fresh
 
-        let content = MenuBarContent(segments: segments, alert: alert, dimmed: dimmed)
+        let content = MenuBarContent(segments: segments, alert: alert, dimmed: dimmed,
+                                     tagBelowLogo: model.prefs.tagBelowLogo)
         if let hosting = menuBarHosting {
             hosting.rootView = content
         } else {
@@ -177,6 +178,7 @@ struct MenuBarContent: View {
     let segments: [MenuBarSegment]
     let alert: Bool
     let dimmed: Bool
+    var tagBelowLogo: Bool = true
 
     var body: some View {
         HStack(spacing: 10) {
@@ -189,14 +191,22 @@ struct MenuBarContent: View {
             ForEach(segments, id: \.id) { segment in
                 // ขีดคู่ = บัญชีมีอยู่แต่ยังไม่มีเลข — จางกว่าตัวที่มีเลขจริงให้อ่านผ่านตาได้
                 HStack(spacing: 3) {
-                    if let image = Self.logo(segment.assetName) {
-                        Image(nsImage: image)
-                            .renderingMode(.template)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 12.5, height: 12.5)
+                    // ป้ายบัญชีใต้โลโก้ (ค่าเริ่มต้น) ประหยัดที่แนวนอน — สลับได้ในตั้งค่า
+                    VStack(spacing: 0) {
+                        if let image = Self.logo(segment.assetName) {
+                            Image(nsImage: image)
+                                .renderingMode(.template)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: tagBelowLogo && segment.tag != nil ? 11 : 12.5,
+                                       height: tagBelowLogo && segment.tag != nil ? 11 : 12.5)
+                        }
+                        if tagBelowLogo, let tag = segment.tag {
+                            Text(tag).font(.system(size: 6.5, weight: .semibold))
+                                .opacity(0.55)
+                        }
                     }
-                    if let tag = segment.tag {
+                    if !tagBelowLogo, let tag = segment.tag {
                         // บัญชีไหนของใคร — โผล่เฉพาะตอน provider เดียวกันมีหลายบัญชี
                         Text(tag).font(.system(size: 7.5, weight: .semibold))
                             .opacity(0.55)

@@ -56,11 +56,29 @@ struct SettingsView: View {
                 }
             }
             Divider()
+            tagPositionToggle
+            Divider()
             designStylePicker
         }
         // ห้ามตั้งขนาดตายตัว — เคยเป็น 460x620 จากยุคที่เปิดเป็น sheet แยก
         // พอฝังใน popover กว้าง 380 ขอบขวาโดนตัด ปุ่ม "แก้ราคา" กดไม่ได้เลย
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// ป้ายบัญชี (de/mo/wo) บนแถบเมนู — ใต้โลโก้ประหยัดที่ · ข้างโลโก้อ่านง่ายกว่า
+    private var tagPositionToggle: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 1) {
+                Text("ป้ายบัญชีใต้โลโก้").font(.system(size: 12, weight: .semibold))
+                Text("ปิดแล้วป้ายจะอยู่ข้างโลโก้แทน").font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Toggle("", isOn: Binding(get: { prefs.tagBelowLogo },
+                                     set: { prefs.setTagBelowLogo($0) }))
+                .toggleStyle(.switch).controlSize(.mini).labelsHidden()
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
     }
 
     /// ย้ายมาจากหน้าตั้งค่าเดิมที่ถูกรวมทิ้งไปแล้ว — ยังเป็นฟีเจอร์ที่ต้องเก็บไว้

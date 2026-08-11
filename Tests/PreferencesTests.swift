@@ -98,6 +98,17 @@ final class PreferencesTests: XCTestCase {
         XCTAssertTrue(prefs.pinned.isEmpty)
     }
 
+    // MARK: - ตำแหน่งป้ายบัญชีบนแถบเมนู
+
+    /// ค่าเริ่มต้นคือใต้โลโก้ และการสลับต้องรอดข้าม restart
+    func testTagBelowLogoDefaultsTrueAndPersists() {
+        XCTAssertTrue(Preferences(defaults: defaults).tagBelowLogo)
+        let prefs = Preferences(defaults: defaults)
+        prefs.setTagBelowLogo(false)
+        XCTAssertFalse(prefs.tagBelowLogo)
+        XCTAssertFalse(Preferences(defaults: defaults).tagBelowLogo, "ต้องอ่านค่าที่ตั้งไว้กลับมาได้")
+    }
+
     // MARK: - ย้ายกลไก visibleMenuBarProviders เดิมมาเป็น hidden
 
     /// ผู้ใช้เคยตั้ง visibleMenuBarProviders ไว้ ต้องไม่หายตอนรวมกลไก

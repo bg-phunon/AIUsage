@@ -18,6 +18,7 @@ final class Preferences: ObservableObject {
         static let pinned = "pinned"
         static let hidden = "hidden"
         static let prices = "prices"
+        static let tagBelowLogo = "tagBelowLogo"
     }
 
     private let defaults: UserDefaults
@@ -25,12 +26,16 @@ final class Preferences: ObservableObject {
     @Published private(set) var pinned: [String]
     @Published private(set) var hidden: Set<String>
     @Published private(set) var prices: [String: Price]
+    /// ป้ายบัญชี (de/mo/wo) อยู่ใต้โลโก้หรือข้างโลโก้ — ใต้ประหยัดที่แนวนอนกว่า
+    @Published private(set) var tagBelowLogo: Bool
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         pinned = (defaults.array(forKey: Key.pinned) as? [String]) ?? []
         hidden = Set((defaults.array(forKey: Key.hidden) as? [String]) ?? [])
         prices = Self.decodePrices(defaults.data(forKey: Key.prices))
+        tagBelowLogo = defaults.object(forKey: Key.tagBelowLogo) == nil
+            ? true : defaults.bool(forKey: Key.tagBelowLogo)
     }
 
     var maxPins: Int { Self.maxPins }
@@ -62,6 +67,11 @@ final class Preferences: ObservableObject {
     }
 
     func isVisible(_ id: String) -> Bool { !hidden.contains(id) }
+
+    func setTagBelowLogo(_ below: Bool) {
+        tagBelowLogo = below
+        defaults.set(below, forKey: Key.tagBelowLogo)
+    }
 
     /// ย้ายค่าจากกลไกเดิม (ซ่อนราย group สำหรับแถบเมนู) มาเป็น hidden ราย bucket
     /// ลบคีย์เดิมทิ้งหลังย้าย จะได้ไม่ทับสิ่งที่ผู้ใช้เลือกใหม่ในรอบถัดไป
