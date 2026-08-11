@@ -8,7 +8,7 @@ struct AIUsageApp: App {
     var body: some Scene { Settings { EmptyView() } }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private var menuBarHosting: ClickThroughHostingView<MenuBarContent>?
@@ -30,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         popover = NSPopover()
         popover.behavior = .transient
+        popover.delegate = self
         popover.contentSize = NSSize(width: 380, height: 560)
         popover.contentViewController = NSHostingController(
             rootView: PopoverView(model: model, prefs: model.prefs))
@@ -54,6 +55,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.refresh() }
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        updateBar()   // apply ความกว้างที่ค้างไว้ระหว่าง popover เปิด
     }
 
     @objc private func didWake() { lastWake = Date(); refresh() }
@@ -105,7 +110,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.attributedTitle = NSAttributedString()   // ห้ามมีข้อความซ้อนใต้ view
         }
         // status item ไม่รู้ขนาดของ subview เอง ต้องบอกความกว้างตรงๆ
-        statusItem.length = menuBarHosting?.fittingSize.width ?? NSStatusItem.variableLength
+        // แต่ห้ามขยับตอน popover เปิดอยู่ — ปุ่มขยับ = popover ที่เกาะอยู่กระโดดตาม
+        // ความกว้างใหม่จะถูก apply ตอน popoverDidClose
+        if popover?.isShown != true {
+            statusItem.length = menuBarHosting?.fittingSize.width ?? NSStatusItem.variableLength
+        }
     }
 
 
@@ -166,7 +175,7 @@ struct MenuBarContent: View {
             if segments.isEmpty {
                 Text("AI —").font(.system(size: 11, weight: .medium)).opacity(0.5)
             }
-            ForEach(segments, id: \.group) { segment in
+            ForEach(segments, id: \.id) { segment in
                 HStack(spacing: 3) {
                     if let image = Self.logo(segment.assetName) {
                         Image(nsImage: image)
@@ -174,6 +183,11 @@ struct MenuBarContent: View {
                             .resizable()
                             .aspectRatio(contentMode: .fit)
                             .frame(width: 12.5, height: 12.5)
+                    }
+                    if let tag = segment.tag {
+                        // บัญชีไหนของใคร — โผล่เฉพาะตอน provider เดียวกันมีหลายบัญชี
+                        Text(tag).font(.system(size: 7.5, weight: .semibold))
+                            .opacity(0.55)
                     }
                     if let bottom = segment.bottom {
                         // สองหน้าต่างซ้อนกันแบบ OpenUsage — 5 ชม. บน 7 วันล่าง

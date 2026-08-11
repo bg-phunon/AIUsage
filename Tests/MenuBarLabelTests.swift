@@ -197,4 +197,20 @@ final class MenuBarLabelTests: XCTestCase {
                                        wokeRecently: false, hidden: [], pinned: [])
         XCTAssertEqual(segments.map(\.group), ["Codex"])
     }
+
+    /// หลายบัญชี ccs คือเหตุผลข้อแรกของแอปนี้ — แต่ละบัญชีต้องได้ segment ของตัวเอง
+    func testEachClaudeAccountGetsItsOwnSegment() {
+        var mooz = groupItem("Claude Code", "mooz", pct: 27)
+        mooz.weekPct = 27; mooz.weekConfidence = "valid"
+        let segments = menuBarSegments(snapshot: snapshot([groupItem("Claude Code", "default", pct: 96), mooz]),
+                                       now: now, wokeRecently: false, hidden: [], pinned: [])
+        XCTAssertEqual(segments.map(\.id), ["Claude Code/default", "Claude Code/mooz"])
+        XCTAssertEqual(segments.map(\.tag), ["de", "mo"], "โลโก้ซ้ำกันต้องมีป้ายบัญชี")
+    }
+
+    func testSingleAccountNeedsNoTag() {
+        let segments = menuBarSegments(snapshot: snapshot([groupItem("Codex", "Codex", pct: 99)]),
+                                       now: now, wokeRecently: false, hidden: [], pinned: [])
+        XCTAssertNil(segments[0].tag)
+    }
 }

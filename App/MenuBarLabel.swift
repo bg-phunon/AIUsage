@@ -7,15 +7,17 @@ struct MenuBarText: Equatable {
 }
 
 struct MenuBarSegment: Equatable {
+    /// bucket id ("group/label") — segment ต่อถัง ไม่ใช่ต่อ provider
+    /// หลายบัญชี ccs คือเหตุผลข้อแรกของแอปนี้ การยุบเหลือตัวเดียวคือการทิ้งมัน
+    let id: String
     let group: String
     let assetName: String
-    /// เลขบน (5 ชม.) — สไตล์ OpenUsage: สองหน้าต่างซ้อนกันในความกว้างเดียว
+    /// ตัวย่อบัญชี โชว์เมื่อ provider เดียวกันมีหลายบัญชีบนแถบ (de/mo/wo)
+    let tag: String?
     let top: String
-    /// เลขล่าง (7 วัน) — nil เมื่อถังนั้นมีหน้าต่างเดียว แล้ว top จะถูกวาดกลางบรรทัด
     let bottom: String?
     let color: String
 
-    /// เข้ากันได้กับโค้ดเก่าที่อ่านค่าเดียว
     var value: String { bottom == nil ? top : "\(top)/\(bottom!)" }
 }
 
@@ -32,36 +34,45 @@ func menuBarSegments(snapshot: UsageSnapshot, now: Date, wokeRecently: Bool,
         ("GLM", "zai", "#B087E8"),
         ("Codex", "openai", "#67C587"),
     ]
-    /// เลขของหน้าต่างเดียว — nil เมื่อไม่มีตัวเลขที่เชื่อได้ (ต่างจาก "0%" ที่เป็นตัวเลขจริง)
     func windowText(_ pct: Double?, _ conf: String?) -> String? {
         guard state != .dead, let pct, certainty(confidence: conf) != .unknown else { return nil }
         return "\(Int(pct.rounded()))%"
     }
-    let all: [MenuBarSegment] = definitions.compactMap { group, symbol, color in
-        let candidates = snapshot.items.filter {
-            $0.group == group && $0.error == nil && $0.local != true && !hidden.contains($0.id)
+    var all: [MenuBarSegment] = []
+    for (group, symbol, color) in definitions {
+        // segment ต่อถัง — ทุกบัญชีที่มีเลขได้ที่ของตัวเอง ไม่ถูกยุบเหลือตัวที่แย่สุด
+        let candidates = snapshot.items
+            .filter { $0.group == group && $0.error == nil && $0.local != true && !hidden.contains($0.id) }
+            .sorted { $0.label < $1.label }
+        var made: [MenuBarSegment] = []
+        for item in candidates {
+            let session = windowText(item.pct, item.confidence)
+            let week = windowText(item.weekPct, item.weekConfidence ?? item.confidence)
+            let pair: (String, String?)?
+            switch (session, week) {
+            case (nil, nil): pair = nil
+            case let (s?, w?): pair = (s, w)
+            case let (s?, nil): pair = (s, nil)
+            case let (nil, w?): pair = (w, nil)
+            }
+            guard let (top, bottom) = pair else { continue }
+            made.append(MenuBarSegment(id: item.id, group: group, assetName: symbol,
+                                       tag: nil, top: top, bottom: bottom, color: color))
         }
-        guard let item = candidates.max(by: { ($0.displayPct ?? -1) < ($1.displayPct ?? -1) }) else { return nil }
-        let session = windowText(item.pct, item.confidence)
-        let week = windowText(item.weekPct, item.weekConfidence ?? item.confidence)
-        // ไม่มีเลขสักหน้าต่าง = ไม่ต้องกินที่บนแถบ — รายละเอียดยังอยู่ใน popover
-        switch (session, week) {
-        case (nil, nil):
-            return nil
-        case let (s?, w?):
-            return MenuBarSegment(group: group, assetName: symbol, top: s, bottom: w, color: color)
-        case let (s?, nil):
-            return MenuBarSegment(group: group, assetName: symbol, top: s, bottom: nil, color: color)
-        case let (nil, w?):
-            return MenuBarSegment(group: group, assetName: symbol, top: w, bottom: nil, color: color)
+        if made.count > 1 {
+            // ป้ายบัญชีจำเป็นเฉพาะตอนโลโก้ซ้ำกัน — ตัวเดียวไม่ต้องมีให้รก
+            made = made.map { seg in
+                let label = String(seg.id.split(separator: "/").last ?? "").prefix(2)
+                return MenuBarSegment(id: seg.id, group: seg.group, assetName: seg.assetName,
+                                      tag: String(label), top: seg.top, bottom: seg.bottom,
+                                      color: seg.color)
+            }
         }
+        all.append(contentsOf: made)
     }
     guard !pinned.isEmpty else { return all }
-    // หมุดเป็น "ตัวกรอง" ไม่ใช่ "โหมดใหม่" — โลโก้และการจัดวางต้องเหมือนเดิมทุกอย่าง
-    let pinnedGroups = pinned.compactMap { id -> String? in
-        snapshot.items.first { $0.id == id }?.group
-    }
-    let filtered = pinnedGroups.compactMap { group in all.first { $0.group == group } }
+    // หมุดเป็น "ตัวกรอง" — เรียงตามลำดับที่ปัก โลโก้และการจัดวางเหมือนเดิมทุกอย่าง
+    let filtered = pinned.compactMap { id in all.first { $0.id == id } }
     return filtered.isEmpty ? all : filtered
 }
 

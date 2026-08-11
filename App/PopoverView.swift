@@ -83,6 +83,7 @@ struct PopoverView: View {
         }
         .onReceive(tick) { now = $0 }
         .onAppear { now = Date() }   // เปิด popover แล้วเวลาต้องสดทันที ไม่รอ tick แรก
+        .onReceive(model.$snapshot) { _ in now = Date() }   // รีเฟรชสำเร็จ = อายุกลับเป็นศูนย์ให้เห็น
     }
 
 
@@ -120,18 +121,23 @@ struct PopoverView: View {
                 strip(icon: "arrow.clockwise", text: "อัปเดตล่าสุด \(ageText(age)) ที่แล้ว",
                       tint: snapshotState == .dead ? .red : .orange)
             }
-            if !prefs.pinned.isEmpty {
-                HStack(spacing: 8) {
+            // สูงคงที่เสมอ — แถบที่โผล่/หายตอนกดหมุดคือสาเหตุที่เนื้อหาเด้งขึ้นลง
+            HStack(spacing: 8) {
+                if prefs.pinned.isEmpty {
+                    Text("แถบเมนู: อัตโนมัติ — ทุกถังที่มีตัวเลข")
+                    Spacer()
+                } else {
                     Text("แถบเมนู: ปักหมุดไว้ \(prefs.pinned.count)")
                     Spacer()
                     Button("ยกเลิกทั้งหมด → อัตโนมัติ") { prefs.clearPins() }
                         .buttonStyle(.plain)
                         .foregroundStyle(.tint)
                 }
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 14).padding(.vertical, 8)
             }
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .frame(height: 30)
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(displayItems) { item in row(item) }
