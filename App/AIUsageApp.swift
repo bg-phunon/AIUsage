@@ -230,7 +230,7 @@ struct MenuBarContent: View {
                             .monospacedDigit()
                     }
                 }
-                .opacity(segment.value == "–/–" ? 0.55 : 1)
+                .opacity(segment.value == "–" ? 0.55 : 1)
             }
         }
         .padding(.horizontal, 6)

@@ -76,7 +76,7 @@ final class MenuBarLabelTests: XCTestCase {
                                        hidden: [], pinned: [])
         XCTAssertEqual(segments.map(\.id), ["Claude Code/default", "Claude Code/mooz"])
         XCTAssertEqual(segments[1].top, "–")
-        XCTAssertEqual(segments[1].bottom, "–")
+        XCTAssertNil(segments[1].bottom, "ไม่มีเลขเลย = ขีดเดียว ไม่ใช่ขีดคู่")
         XCTAssertEqual(segments.map(\.tag), ["de", "mo"], "โลโก้ซ้ำต้องมีป้ายบอกบัญชี")
     }
 
@@ -135,21 +135,22 @@ final class MenuBarLabelTests: XCTestCase {
         XCTAssertEqual(segments[0].bottom, "100%")
     }
 
-    /// เลขเดี่ยวลอยๆ อ่านไม่ออกว่าเป็นหน้าต่างไหน — weekly มีที่ประจำคือบรรทัดล่างเสมอ
-    func testMissingWindowShowsDashNotCollapse() {
-        let codex = groupItem("Codex", "Codex", pct: 99)   // ไม่มี weekly → ขีด
+    /// หน้าต่างเดียว = บรรทัดเดียวตัวใหญ่ — ขีดค้ำบรรทัดที่ไม่มีข้อมูลไม่บอกอะไรใคร
+    /// (สองบรรทัดสงวนไว้สำหรับตอนมีเลขครบทั้ง 5h และ 7d เท่านั้น)
+    func testSingleWindowCollapsesToOneLine() {
+        let codex = groupItem("Codex", "Codex", pct: 99)   // มีแต่ 5h
         let segments = menuBarSegments(snapshot: snapshot([codex]), now: now,
                                        wokeRecently: false, hidden: [], pinned: [])
         XCTAssertEqual(segments[0].top, "99%")
-        XCTAssertEqual(segments[0].bottom, "–")
+        XCTAssertNil(segments[0].bottom)
 
         var qwen = UsageItem(group: "Qwen Cloud", label: "default", window: "5 ชม.",
                              weekPct: 100, pctSource: "official", weekConfidence: "valid")
         qwen.resetAt = now.addingTimeInterval(3600)
         let qsegs = menuBarSegments(snapshot: snapshot([qwen]), now: now,
                                     wokeRecently: false, hidden: [], pinned: [])
-        XCTAssertEqual(qsegs[0].top, "–", "5h ไม่มีข้อมูล = ขีด ไม่ใช่เอา weekly ขึ้นบน")
-        XCTAssertEqual(qsegs[0].bottom, "100%")
+        XCTAssertEqual(qsegs[0].top, "100%", "มีแต่ weekly ก็ขึ้นเป็นเลขเดี่ยว")
+        XCTAssertNil(qsegs[0].bottom)
     }
 
     /// ขีด — บนแถบเมนูคือที่ที่เสียไปฟรีๆ ถังที่ไม่มีเลขให้ดูใน popover เอา
