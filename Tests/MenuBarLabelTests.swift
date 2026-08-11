@@ -45,10 +45,12 @@ final class MenuBarLabelTests: XCTestCase {
     }
 
     /// snapshot ตาย = เอนจินหยุดเดินไปนานแล้ว — เลขค้างเก่าห้ามแสร้งว่าเป็นปัจจุบัน
+    /// และถังมี traffic ก็ห้ามขึ้นเป็นขีดด้วย เพราะขีดตอนตายแปลว่า "ยังเดินอยู่แต่ไม่มีเลข" ซึ่งโกหก
     func testDeadSnapshotDropsAllSegments() {
-        let snap = snapshot([named("Codex", "Codex", pct: 99, weekPct: 30)],
-                            generatedAgo: 2 * 3600)
-        let segments = menuBarSegments(snapshot: snap, now: now, wokeRecently: false,
+        var item = named("Codex", "Codex", pct: 99, weekPct: 30)
+        item.weekTokens = 1_000_000
+        let segments = menuBarSegments(snapshot: snapshot([item], generatedAgo: 2 * 3600),
+                                       now: now, wokeRecently: false,
                                        hidden: [], pinned: [])
         XCTAssertTrue(segments.isEmpty)
     }
@@ -60,6 +62,22 @@ final class MenuBarLabelTests: XCTestCase {
         let segments = menuBarSegments(snapshot: snapshot([item]), now: now,
                                        wokeRecently: false, hidden: [], pinned: [])
         XCTAssertTrue(segments.isEmpty, "ไม่แน่ใจ = ไม่มีเลข ไม่ใช่เลขมั่วๆ")
+    }
+
+    /// บัญชี ccs ที่แคชโควตาเก่าจนไม่มี % — ต้องยังเห็นบนแถบเป็นขีดคู่ ไม่ใช่ล่องหน
+    /// เห็นทุกบัญชีคือเหตุผลข้อแรกของแอปนี้
+    func testAccountWithTrafficButNoNumbersKeepsItsSlot() {
+        var mooz = named("Claude Code", "mooz", pct: nil, weekPct: nil)
+        mooz.confidence = "unsure"
+        mooz.weekConfidence = "unsure"
+        mooz.weekTokens = 60_000_000
+        let snap = snapshot([groupItem("Claude Code", "default", pct: 96), mooz])
+        let segments = menuBarSegments(snapshot: snap, now: now, wokeRecently: false,
+                                       hidden: [], pinned: [])
+        XCTAssertEqual(segments.map(\.id), ["Claude Code/default", "Claude Code/mooz"])
+        XCTAssertEqual(segments[1].top, "–")
+        XCTAssertEqual(segments[1].bottom, "–")
+        XCTAssertEqual(segments.map(\.tag), ["de", "mo"], "โลโก้ซ้ำต้องมีป้ายบอกบัญชี")
     }
 
     // MARK: - หมุดต้องไม่ทำให้โลโก้หาย

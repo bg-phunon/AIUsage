@@ -187,6 +187,7 @@ struct MenuBarContent: View {
                 Text("AI —").font(.system(size: 11, weight: .medium)).opacity(0.5)
             }
             ForEach(segments, id: \.id) { segment in
+                // ขีดคู่ = บัญชีมีอยู่แต่ยังไม่มีเลข — จางกว่าตัวที่มีเลขจริงให้อ่านผ่านตาได้
                 HStack(spacing: 3) {
                     if let image = Self.logo(segment.assetName) {
                         Image(nsImage: image)
@@ -214,6 +215,7 @@ struct MenuBarContent: View {
                             .monospacedDigit()
                     }
                 }
+                .opacity(segment.value == "–/–" ? 0.55 : 1)
             }
         }
         .padding(.horizontal, 6)

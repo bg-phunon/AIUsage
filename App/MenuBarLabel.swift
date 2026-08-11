@@ -44,7 +44,12 @@ func menuBarSegments(snapshot: UsageSnapshot, now: Date, wokeRecently: Bool,
             let week = windowText(item.weekPct, item.weekConfidence ?? item.confidence)
             // สองบรรทัดเสมอ: บน 5h ล่าง 7d ตัวที่ไม่มีเป็นขีด
             // เลขเดี่ยวลอยๆ อ่านไม่ออกว่าเป็นหน้าต่างไหน — weekly ต้องมีที่ประจำ
-            if session == nil && week == nil { continue }
+            if session == nil && week == nil {
+                // เห็นทุกบัญชี ccs คือเหตุผลข้อแรกของแอปนี้ — บัญชีที่มี traffic จริง
+                // แต่แคชโควตาเก่าจนไม่มี % ต้องยังได้ที่บนแถบเป็นขีดคู่ ไม่ใช่ล่องหน
+                // ถังที่เงียบสนิท (ไม่มีเลข ไม่มี traffic) ค่อยไม่กินที่ฟรีๆ
+                guard state != .dead, item.weekTokens > 0 else { continue }
+            }
             let top = session ?? "–"
             let bottom = week ?? "–"
             made.append(MenuBarSegment(id: item.id, group: group, assetName: symbol,
