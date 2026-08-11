@@ -54,7 +54,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             DispatchQueue.main.async { self?.updateBar() }
         }
         refresh()
-        timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.refresh() }
+        // ห้ามใช้ scheduledTimer เฉยๆ — มันอยู่ใน mode .default ซึ่ง "หยุดยิง"
+        // ระหว่างที่ popover กำลังโต้ตอบ (event tracking) ผลคือยิ่งผู้ใช้เปิดดูอยู่
+        // ข้อมูลยิ่งไม่อัปเดต ต้องลงทะเบียนใน .common ให้ยิงได้ทุกสถานการณ์
+        let refreshTimer = Timer(timeInterval: 60, repeats: true) { [weak self] _ in self?.refresh() }
+        RunLoop.main.add(refreshTimer, forMode: .common)
+        timer = refreshTimer
     }
 
     func popoverDidClose(_ notification: Notification) {
@@ -70,8 +75,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func refresh() {
         runner?.run { [weak self] result in
             guard let self else { return }
-            if case .failure(let error) = result, case .alreadyRunning = error { return }
             if case .failure(let error) = result {
+                if case .alreadyRunning = error {
+                    // มีรอบวิ่งอยู่แล้ว — ไม่ใช่ error และดิสก์อาจมีของใหม่กว่าที่จอถือ
+                    self.model.snapshot = .load()
+                    self.updateBar()
+                    return
+                }
                 self.model.engineError = EngineRunner.describe(error)
             } else {
                 self.model.engineError = nil
@@ -136,6 +146,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             popover.performClose(nil)
         } else {
             model.snapshot = .load()
+            refresh()   // เปิดดู = อยากเห็นของสด ยิงรอบใหม่เลย
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             // ห้ามบังคับหน้าต่างให้ใส — เคยตั้ง isOpaque=false + backgroundColor=.clear
             // ไว้ตรงนี้ ทำให้วอลเปเปอร์ทะลุขึ้นมาจนตัวเลขอ่านไม่ออก
