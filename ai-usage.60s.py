@@ -609,10 +609,14 @@ def token_plan_hits(config_dir, since):
 
     กรองเฉพาะ record ที่เป็น API error จริง (error=="rate_limit", ไม่ transient)
     ข้อความเดียวกันที่ถูกเล่าซ้ำในบทสนทนาจะไม่ใช่ record แบบนี้ จึงไม่ปนเข้ามา
+
+    คืน (merged, seen_at): merged คือเวลารีเซ็ตล่าสุดต่อหน้าต่าง ส่วน seen_at คือ
+    เวลาที่เห็นคำประกาศครั้งล่าสุด — เป็นคนละเรื่องกับเวลาที่สแกนเจอ
     """
     pattern = os.path.join(config_dir, "projects", "**", "*.jsonl")
     cutoff = since.timestamp() - 3600
     found = []
+    seen_at = {}
     for path in glob.iglob(pattern, recursive=True):
         if "/subagents/" in path or "/tool-results/" in path:
             continue
@@ -642,7 +646,10 @@ def token_plan_hits(config_dir, since):
                 hit = _q429.parse_hit(text, ts)
                 if hit:
                     found.append(hit)
-    return _q429.merge_hits(found)
+                    window = hit[0]
+                    if window not in seen_at or ts > seen_at[window]:
+                        seen_at[window] = ts
+    return _q429.merge_hits(found), seen_at
 
 
 def bucket_rows(acc, table):
@@ -659,7 +666,14 @@ def bucket_rows(acc, table):
         grouped.setdefault(bucket, []).append(row)
 
     now = now_utc()
-    hits = token_plan_hits(acc["dir"], since)
+    hits, hits_seen_at = token_plan_hits(acc["dir"], since)
+
+    # ถังที่ exhausted ห้ามหายเพียงเพราะไม่มี traffic — โควตาเต็มแปลว่าใช้ไม่ได้
+    # แปลว่าจะไม่มี traffic ใหม่โดยธรรมชาติ ยิ่งเต็มนานยิ่งเสี่ยงหายจากจอ
+    if any(reset > now for reset in hits.values()):
+        for bucket in set(table.values()):
+            if bucket.name == "Qwen Cloud":
+                grouped.setdefault(bucket, [])
 
     out = []
     for bucket, rows in sorted(grouped.items(), key=lambda pair: pair[0].name):
@@ -674,15 +688,20 @@ def bucket_rows(acc, table):
         reset_at = None
         conf = week_conf = None
         source = None
+        fetched_at = None
         if bucket.name == "Qwen Cloud":
             hit_5h = hits.get("5h")
             hit_week = hits.get("week")
             if hit_5h and hit_5h > now:
                 pct, conf, reset_at = 100.0, "valid", hit_5h
+                fetched_at = hits_seen_at.get("5h")
             if hit_week and hit_week > now:
                 week_pct, week_conf = 100.0, "valid"
                 if reset_at is None:
                     reset_at = hit_week
+                week_seen = hits_seen_at.get("week")
+                if week_seen and (fetched_at is None or week_seen > fetched_at):
+                    fetched_at = week_seen
             if pct is not None or week_pct is not None:
                 source = "official"
 
@@ -695,7 +714,8 @@ def bucket_rows(acc, table):
             "pctSource": source,
             "confidence": conf,
             "weekConfidence": week_conf,
-            "dataFetchedAt": now.isoformat().replace("+00:00", "Z") if source else None,
+            # เวลาที่ "เห็นคำประกาศจากผู้ให้บริการ" ไม่ใช่เวลาที่สแกนรอบล่าสุด
+            "dataFetchedAt": fetched_at.isoformat().replace("+00:00", "Z") if fetched_at else None,
             "pctEstimated": False,
             "tokens": block_summary["tokens"] if block_summary else 0,
             # ไม่รู้ราคา → None ไม่ใช่ 0.0 · ศูนย์ที่แปลว่า "ไม่รู้" อ่านเป็น "ฟรี"
