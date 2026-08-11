@@ -193,38 +193,39 @@ struct MenuBarContent: View {
             }
             ForEach(segments, id: \.id) { segment in
                 // ขีดคู่ = บัญชีมีอยู่แต่ยังไม่มีเลข — จางกว่าตัวที่มีเลขจริงให้อ่านผ่านตาได้
-                HStack(spacing: 3) {
+                HStack(spacing: 3.5) {
                     // ป้ายบัญชีใต้โลโก้ (ค่าเริ่มต้น) ประหยัดที่แนวนอน — สลับได้ในตั้งค่า
-                    VStack(spacing: 0) {
+                    VStack(spacing: -0.5) {
                         if let image = Self.logo(segment.assetName) {
                             Image(nsImage: image)
                                 .renderingMode(.template)
                                 .resizable()
                                 .aspectRatio(contentMode: .fit)
-                                .frame(width: tagBelowLogo && segment.tag != nil ? 11 : 12.5,
-                                       height: tagBelowLogo && segment.tag != nil ? 11 : 12.5)
+                                .frame(width: tagBelowLogo && segment.tag != nil ? 12 : 14,
+                                       height: tagBelowLogo && segment.tag != nil ? 12 : 14)
                         }
                         if tagBelowLogo, let tag = segment.tag {
-                            Text(tag).font(.system(size: 6.5, weight: .semibold))
-                                .opacity(0.55)
+                            Text(tag).font(.system(size: 7, weight: .bold))
+                                .opacity(0.6)
                         }
                     }
                     if !tagBelowLogo, let tag = segment.tag {
                         // บัญชีไหนของใคร — โผล่เฉพาะตอน provider เดียวกันมีหลายบัญชี
-                        Text(tag).font(.system(size: 7.5, weight: .semibold))
-                            .opacity(0.55)
+                        Text(tag).font(.system(size: 8, weight: .bold))
+                            .opacity(0.6)
                     }
                     if let bottom = segment.bottom {
                         // สองหน้าต่างซ้อนกันแบบ OpenUsage — 5 ชม. บน 7 วันล่าง
-                        VStack(alignment: .leading, spacing: -0.5) {
+                        // 8pt เคยเล็กจนอ่านไม่ออกเทียบกับ OpenUsage — 9.5 bold คือขนาดที่อ่านผ่านตาได้
+                        VStack(alignment: .leading, spacing: -1.5) {
                             Text(segment.top)
                             Text(bottom)
                         }
-                        .font(.system(size: 8, weight: .semibold))
+                        .font(.system(size: 9.5, weight: .bold))
                         .monospacedDigit()
                     } else {
                         Text(segment.top)
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.system(size: 11.5, weight: .semibold))
                             .monospacedDigit()
                     }
                 }
