@@ -32,7 +32,7 @@ func menuBarSegments(snapshot: UsageSnapshot, now: Date, wokeRecently: Bool,
         ("Claude Code", "claude", "#E49A54"),
         ("Qwen Cloud", "qwen", "#5C9DED"),
         ("GLM", "zai", "#B087E8"),
-        ("Codex", "openai", "#67C587"),
+        ("Codex", "codex", "#67C587"),
     ]
     func windowText(_ pct: Double?, _ conf: String?) -> String? {
         guard state != .dead, let pct, certainty(confidence: conf) != .unknown else { return nil }
@@ -48,14 +48,11 @@ func menuBarSegments(snapshot: UsageSnapshot, now: Date, wokeRecently: Bool,
         for item in candidates {
             let session = windowText(item.pct, item.confidence)
             let week = windowText(item.weekPct, item.weekConfidence ?? item.confidence)
-            let pair: (String, String?)?
-            switch (session, week) {
-            case (nil, nil): pair = nil
-            case let (s?, w?): pair = (s, w)
-            case let (s?, nil): pair = (s, nil)
-            case let (nil, w?): pair = (w, nil)
-            }
-            guard let (top, bottom) = pair else { continue }
+            // สองบรรทัดเสมอ: บน 5h ล่าง 7d ตัวที่ไม่มีเป็นขีด
+            // เลขเดี่ยวลอยๆ อ่านไม่ออกว่าเป็นหน้าต่างไหน — weekly ต้องมีที่ประจำ
+            if session == nil && week == nil { continue }
+            let top = session ?? "–"
+            let bottom = week ?? "–"
             made.append(MenuBarSegment(id: item.id, group: group, assetName: symbol,
                                        tag: nil, top: top, bottom: bottom, color: color))
         }

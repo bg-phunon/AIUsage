@@ -544,7 +544,7 @@ struct ProviderLogo: View {
     private var asset: String? {
         switch group {
         case "Claude Code": return "claude"
-        case "Codex": return "openai"
+        case "Codex": return "codex"
         case "GLM": return "zai"
         case "Qwen Cloud": return "qwen"
         default: return nil
