@@ -176,4 +176,25 @@ final class MenuBarLabelTests: XCTestCase {
                                        now: now, wokeRecently: false, hidden: [], pinned: [])
         XCTAssertNil(segments[0].tag)
     }
+
+    // MARK: - ลำดับที่ผู้ใช้จัดเอง
+
+    func testUserOrderRearrangesSegments() {
+        let snap = snapshot([groupItem("Claude Code", "default", pct: 96),
+                             groupItem("Codex", "Codex", pct: 92)])
+        let segments = menuBarSegments(snapshot: snap, now: now, wokeRecently: false,
+                                       hidden: [], pinned: [],
+                                       order: ["Codex/Codex", "Claude Code/default"])
+        XCTAssertEqual(segments.map(\.id), ["Codex/Codex", "Claude Code/default"])
+    }
+
+    /// ถังใหม่ที่เพิ่งงอก (ยังไม่เคยถูกจัด) ต้องต่อท้าย ไม่แทรกมั่วและไม่หาย
+    func testUnknownIdsAppendAfterOrderedOnes() {
+        let items = [groupItem("Claude Code", "default", pct: 96),
+                     groupItem("Codex", "Codex", pct: 92),
+                     groupItem("Qwen Cloud", "default", pct: 50)]
+        let ordered = applyUserOrder(items, order: ["Codex/Codex"]) { $0.id }
+        XCTAssertEqual(ordered.map(\.id),
+                       ["Codex/Codex", "Claude Code/default", "Qwen Cloud/default"])
+    }
 }

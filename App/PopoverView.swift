@@ -53,9 +53,10 @@ struct PopoverView: View {
             }
             return true
         }
-        // ถังเปล่าจมลงล่าง — ของที่มีตัวเลขจริงต้องเห็นก่อนโดยไม่ต้องเลื่อน
-        // (partition แบบเสถียร ลำดับเดิมภายในแต่ละกลุ่มคงอยู่)
-        return visible.filter { !isEmptyBucket($0) } + visible.filter { isEmptyBucket($0) }
+        // ลำดับผู้ใช้ก่อน แล้วถังเปล่าจมลงล่าง — ของที่มีตัวเลขจริงต้องเห็นก่อนโดยไม่ต้องเลื่อน
+        // (partition แบบเสถียร ลำดับที่จัดไว้ภายในแต่ละกลุ่มคงอยู่)
+        let ordered = applyUserOrder(visible, order: prefs.order) { $0.id }
+        return ordered.filter { !isEmptyBucket($0) } + ordered.filter { isEmptyBucket($0) }
     }
 
     private var knownWeeklyCost: Double {

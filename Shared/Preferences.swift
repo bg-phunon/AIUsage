@@ -20,6 +20,7 @@ final class Preferences: ObservableObject {
         static let prices = "prices"
         static let tagBelowLogo = "tagBelowLogo"
         static let launchAtLogin = "launchAtLogin"
+        static let order = "bucketOrder"
     }
 
     private let defaults: UserDefaults
@@ -32,6 +33,8 @@ final class Preferences: ObservableObject {
     /// เปิดแอปเองตอนเข้าระบบ — ค่าเริ่มต้นเปิด เพราะ widget โควตาที่ต้องเปิดเอง
     /// ทุกเช้าคือ widget ที่จะถูกลืม (การ register จริงอยู่ที่ LaunchAtLogin ฝั่งแอป)
     @Published private(set) var launchAtLogin: Bool
+    /// ลำดับถังที่ผู้ใช้จัดเอง — คุมทั้ง popover และแถบเมนู ว่าง = ตามเอนจิน
+    @Published private(set) var order: [String]
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -42,6 +45,7 @@ final class Preferences: ObservableObject {
             ? true : defaults.bool(forKey: Key.tagBelowLogo)
         launchAtLogin = defaults.object(forKey: Key.launchAtLogin) == nil
             ? true : defaults.bool(forKey: Key.launchAtLogin)
+        order = (defaults.array(forKey: Key.order) as? [String]) ?? []
     }
 
     var maxPins: Int { Self.maxPins }
@@ -82,6 +86,11 @@ final class Preferences: ObservableObject {
     func setLaunchAtLogin(_ enabled: Bool) {
         launchAtLogin = enabled
         defaults.set(enabled, forKey: Key.launchAtLogin)
+    }
+
+    func setOrder(_ ids: [String]) {
+        order = ids
+        defaults.set(ids, forKey: Key.order)
     }
 
     /// ย้ายค่าจากกลไกเดิม (ซ่อนราย group สำหรับแถบเมนู) มาเป็น hidden ราย bucket

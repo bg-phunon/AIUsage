@@ -102,7 +102,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let segments = menuBarSegments(snapshot: snapshot, now: Date(),
                                        wokeRecently: wokeRecently,
                                        hidden: model.prefs.hidden,
-                                       pinned: model.prefs.pinned)
+                                       pinned: model.prefs.pinned,
+                                       order: model.prefs.order)
         let alert = hasUnpinnedCritical(snapshot: snapshot, pinned: model.prefs.pinned)
         let age = snapshot.generated == .distantPast
             ? nil : Date().timeIntervalSince(snapshot.generated)

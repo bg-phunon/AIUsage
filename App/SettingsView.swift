@@ -131,8 +131,19 @@ struct SettingsView: View {
 
     /// แถวที่ผู้ใช้ตั้งค่าได้จริง — "กรอกเอง" ถูกระบบซ่อนถาวรอยู่แล้ว
     /// เอามานับรวมจะได้เลขอย่าง "แสดง 7 จาก 10" ทั้งที่ตั้งได้แค่ 7
+    /// เรียงตามลำดับผู้ใช้ — ลำดับในหน้านี้คือลำดับจริงทั้ง popover และแถบเมนู
     private var configurableItems: [UsageItem] {
-        model.snapshot.items.filter { $0.group != "กรอกเอง" }
+        applyUserOrder(model.snapshot.items.filter { $0.group != "กรอกเอง" },
+                       order: prefs.order) { $0.id }
+    }
+
+    private func move(_ item: UsageItem, up: Bool) {
+        var ids = configurableItems.map(\.id)
+        guard let i = ids.firstIndex(of: item.id) else { return }
+        let j = up ? i - 1 : i + 1
+        guard ids.indices.contains(j) else { return }
+        ids.swapAt(i, j)
+        prefs.setOrder(ids)
     }
 
     private var shown: Int {
@@ -165,6 +176,18 @@ struct SettingsView: View {
                     priceLine(item)
                 }
                 Spacer()
+                // จัดลำดับ — ลำดับนี้คือลำดับจริงทั้งการ์ดใน popover และ segment บนแถบ
+                HStack(spacing: 1) {
+                    Button { move(item, up: true) } label: {
+                        Image(systemName: "chevron.up").frame(width: 16, height: 14)
+                    }.help("เลื่อนขึ้น")
+                    Button { move(item, up: false) } label: {
+                        Image(systemName: "chevron.down").frame(width: 16, height: 14)
+                    }.help("เลื่อนลง")
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.secondary)
                 if item.local != true {
                     Button(prefs.prices[item.id] == nil ? "ใส่ราคา" : "แก้ราคา") {
                         beginEditing(item)

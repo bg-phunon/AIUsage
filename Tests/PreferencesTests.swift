@@ -109,6 +109,14 @@ final class PreferencesTests: XCTestCase {
         XCTAssertFalse(Preferences(defaults: defaults).tagBelowLogo, "ต้องอ่านค่าที่ตั้งไว้กลับมาได้")
     }
 
+    /// ลำดับถังที่จัดเองต้องรอดข้าม restart — ว่าง = ตามเอนจิน
+    func testOrderPersists() {
+        XCTAssertTrue(Preferences(defaults: defaults).order.isEmpty)
+        Preferences(defaults: defaults).setOrder(["Codex/Codex", "Claude Code/default"])
+        XCTAssertEqual(Preferences(defaults: defaults).order,
+                       ["Codex/Codex", "Claude Code/default"])
+    }
+
     /// เปิดเองตอนเข้าระบบ: ค่าเริ่มต้นเปิด และการปิดต้องรอดข้าม restart
     func testLaunchAtLoginDefaultsTrueAndPersists() {
         XCTAssertTrue(Preferences(defaults: defaults).launchAtLogin)

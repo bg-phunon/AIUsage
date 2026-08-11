@@ -15,11 +15,23 @@ struct MenuBarSegment: Equatable {
     var value: String { bottom == nil ? top : "\(top)/\(bottom!)" }
 }
 
+/// เรียงตามลำดับที่ผู้ใช้จัดไว้ — ของที่ไม่อยู่ในลำดับต่อท้ายตามลำดับเดิม
+func applyUserOrder<T>(_ items: [T], order: [String], id: (T) -> String) -> [T] {
+    guard !order.isEmpty else { return items }
+    let position = Dictionary(order.enumerated().map { ($1, $0) },
+                              uniquingKeysWith: { first, _ in first })
+    return items.enumerated().sorted { a, b in
+        (position[id(a.element)] ?? order.count + a.offset)
+            < (position[id(b.element)] ?? order.count + b.offset)
+    }.map(\.element)
+}
+
 /// แถบสั้นแบบ provider × เปอร์เซ็นต์ สำหรับพื้นที่ menu bar
 /// ไม่มีการสร้างตัวเลขขึ้นเอง: ถ้ายังวัดไม่ได้จะแสดง `—`
 func menuBarSegments(snapshot: UsageSnapshot, now: Date, wokeRecently: Bool,
                      hidden: Set<String> = [],
-                     pinned: [String] = []) -> [MenuBarSegment] {
+                     pinned: [String] = [],
+                     order: [String] = []) -> [MenuBarSegment] {
     let age = snapshot.generated == .distantPast ? nil : now.timeIntervalSince(snapshot.generated)
     let state = freshness(snapshotAge: age, wokeRecently: wokeRecently)
     let definitions: [(String, String, String)] = [
@@ -66,10 +78,12 @@ func menuBarSegments(snapshot: UsageSnapshot, now: Date, wokeRecently: Bool,
         }
         all.append(contentsOf: made)
     }
-    guard !pinned.isEmpty else { return all }
+    // ลำดับผู้ใช้มาก่อนลำดับ provider ที่ระบบเดา — แต่หมุดชนะทุกอย่างเพราะชี้ตรงกว่า
+    let arranged = applyUserOrder(all, order: order) { $0.id }
+    guard !pinned.isEmpty else { return arranged }
     // หมุดเป็น "ตัวกรอง" — เรียงตามลำดับที่ปัก โลโก้และการจัดวางเหมือนเดิมทุกอย่าง
-    let filtered = pinned.compactMap { id in all.first { $0.id == id } }
-    return filtered.isEmpty ? all : filtered
+    let filtered = pinned.compactMap { id in arranged.first { $0.id == id } }
+    return filtered.isEmpty ? arranged : filtered
 }
 
 /// มีถังที่ไม่ได้ปักกำลังวิกฤตอยู่ไหม
