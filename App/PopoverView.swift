@@ -274,6 +274,7 @@ struct PopoverView: View {
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: 4) {
                             Text(item.group).font(.system(size: 12, weight: .semibold))
+                                .lineLimit(1).fixedSize()
                             // จุดแดง = ชนลิมิตแล้ว ไม่กินความสูงเหมือนป้ายเดิม
                             if let active = item.activeLimit {
                                 Circle().fill(Color.red).frame(width: 5, height: 5)
@@ -354,35 +355,42 @@ struct PopoverView: View {
         }
     }
 
-    /// การ์ดเปล่า — บรรทัดเดียว: หมุด โลโก้ ชื่อ เหตุผลสั้นๆ
+    /// การ์ดเปล่า — สองบรรทัดสั้นๆ: ชื่อครบไม่พับ · เหตุผล/มูลค่าได้ทั้งแถวไม่โดนตัด
+    /// (บรรทัดเดียวเคยลอง: ข้อความท้ายแถวบีบชื่อจนพับ แล้วตัวเลขโดนตัดเป็น "$5…")
     /// ยังกดหมุดและอ่าน tooltip ได้ครบ แค่ไม่กิน 3 บรรทัดเหมือนการ์ดข้อมูล
     @ViewBuilder private func compactRow(_ item: UsageItem) -> some View {
         HStack(spacing: 8) {
             pinButton(item)
             providerMark(item.group)
-            Text(item.group).font(.system(size: 12, weight: .semibold))
-            Text(item.label).font(.system(size: 10.5)).foregroundStyle(.primary.opacity(0.66))
-            if let plan = item.plan {
-                Text(plan).font(.system(size: 9, weight: .medium))
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(providerColor(item.group).opacity(0.15)).clipShape(Capsule())
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(item.group).font(.system(size: 12, weight: .semibold))
+                        .lineLimit(1).fixedSize()
+                    Text(item.label).font(.system(size: 10.5))
+                        .foregroundStyle(.primary.opacity(0.66)).lineLimit(1)
+                    if let plan = item.plan {
+                        Text(plan).font(.system(size: 9, weight: .medium))
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(providerColor(item.group).opacity(0.15)).clipShape(Capsule())
+                    }
+                    // สัญญาณเดียวกับการ์ดเต็ม — ผู้ใช้ยังเห็นว่าทำไมไม่มีเลข
+                    if let age = staleQuotaAge(item) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 8)).foregroundStyle(.secondary.opacity(0.55))
+                            .help("โควตาเก่า \(ageText(age)) — เปิด /usage ใน Claude Code แล้วรอไม่เกิน 60 วินาที")
+                    }
+                }
+                Text(rowFootnote(item, price: prefs.prices[item.id], now: now)
+                     ?? (item.local == true ? "ไม่มีโควตา" : "ยังไม่มีข้อมูล"))
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .help(item.local == true
+                          ? "รันในเครือข่ายตัวเอง ไม่มีโควตาให้นับ"
+                          : "ยังไม่มีเลขโควตาที่เชื่อได้ของถังนี้ — ดูไอคอนหน้าชื่อว่าเพราะอะไร")
             }
-            // สัญญาณเดียวกับการ์ดเต็ม — ผู้ใช้ยังเห็นว่าทำไมไม่มีเลข
-            if let age = staleQuotaAge(item) {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 8)).foregroundStyle(.secondary.opacity(0.55))
-                    .help("โควตาเก่า \(ageText(age)) — เปิด /usage ใน Claude Code แล้วรอไม่เกิน 60 วินาที")
-            }
-            Spacer()
-            Text(rowFootnote(item, price: prefs.prices[item.id], now: now)
-                 ?? (item.local == true ? "ไม่มีโควตา" : "ยังไม่มีข้อมูล"))
-                .font(.system(size: 10)).foregroundStyle(.secondary)
-                .lineLimit(1)
-                .help(item.local == true
-                      ? "รันในเครือข่ายตัวเอง ไม่มีโควตาให้นับ"
-                      : "ยังไม่มีเลขโควตาที่เชื่อได้ของถังนี้ — ดูไอคอนหน้าชื่อว่าเพราะอะไร")
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 13).padding(.vertical, 9)
+        .padding(.horizontal, 13).padding(.vertical, 8)
         .background(cardFill(for: item).opacity(0.6),
                     in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
