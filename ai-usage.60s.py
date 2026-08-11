@@ -37,6 +37,7 @@ SELF = os.path.abspath(__file__)
 sys.path.insert(0, os.path.join(os.path.dirname(SELF), "engine"))
 from aiusage import buckets as _buckets  # noqa: E402
 from aiusage import utilization as _util  # noqa: E402
+from aiusage import quota429 as _q429  # noqa: E402
 
 BLOCK_HOURS = 5
 WEEK_DAYS = 7
@@ -602,6 +603,48 @@ def with_contract(item):
     return item
 
 
+
+def token_plan_hits(config_dir, since):
+    """หา 429 ของ token-plan (Qwen Cloud) → {'5h': reset_dt, 'week': reset_dt}
+
+    กรองเฉพาะ record ที่เป็น API error จริง (error=="rate_limit", ไม่ transient)
+    ข้อความเดียวกันที่ถูกเล่าซ้ำในบทสนทนาจะไม่ใช่ record แบบนี้ จึงไม่ปนเข้ามา
+    """
+    pattern = os.path.join(config_dir, "projects", "**", "*.jsonl")
+    cutoff = since.timestamp() - 3600
+    found = []
+    for path in glob.iglob(pattern, recursive=True):
+        if "/subagents/" in path or "/tool-results/" in path:
+            continue
+        try:
+            if os.path.getmtime(path) < cutoff:
+                continue
+            fh = open(path, "r", encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        with fh:
+            for line in fh:
+                if "token-plan" not in line or '"rate_limit"' not in line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                if rec.get("error") != "rate_limit" or rec.get("apiErrorIsTransient") is not False:
+                    continue
+                ts = parse_ts(rec.get("timestamp"))
+                if ts is None or ts < since:
+                    continue
+                msg = rec.get("message") or {}
+                text = msg.get("content")
+                if isinstance(text, list):
+                    text = " ".join(b.get("text", "") for b in text if isinstance(b, dict))
+                hit = _q429.parse_hit(text, ts)
+                if hit:
+                    found.append(hit)
+    return _q429.merge_hits(found)
+
+
 def bucket_rows(acc, table):
     """แยก traffic ที่ไม่ใช่ Anthropic ตาม endpoint ของถังโควตา"""
     since = now_utc() - timedelta(days=WEEK_DAYS)
@@ -615,27 +658,54 @@ def bucket_rows(acc, table):
             continue
         grouped.setdefault(bucket, []).append(row)
 
+    now = now_utc()
+    hits = token_plan_hits(acc["dir"], since)
+
     out = []
     for bucket, rows in sorted(grouped.items(), key=lambda pair: pair[0].name):
         week = summarize(rows)
         block = current_block(rows)
         block_summary = summarize(block["entries"]) if block else None
         known = costs_known(rows)
+
+        # 429 ของ token-plan คือคำประกาศจากผู้ให้บริการเอง — หน้าต่างนั้น 100%
+        # จนกว่าจะถึงเวลารีเซ็ต (ตรวจกับ dashboard แล้วเวลาตรงเป๊ะ)
+        pct = week_pct = None
+        reset_at = None
+        conf = week_conf = None
+        source = None
+        if bucket.name == "Qwen Cloud":
+            hit_5h = hits.get("5h")
+            hit_week = hits.get("week")
+            if hit_5h and hit_5h > now:
+                pct, conf, reset_at = 100.0, "valid", hit_5h
+            if hit_week and hit_week > now:
+                week_pct, week_conf = 100.0, "valid"
+                if reset_at is None:
+                    reset_at = hit_week
+            if pct is not None or week_pct is not None:
+                source = "official"
+
         out.append(with_contract({
             "group": bucket.name,
             "label": acc["label"],
             "window": "5 ชม.",
             "local": bucket.local,
-            "pct": None,
+            "pct": pct,
+            "pctSource": source,
+            "confidence": conf,
+            "weekConfidence": week_conf,
+            "dataFetchedAt": now.isoformat().replace("+00:00", "Z") if source else None,
             "pctEstimated": False,
             "tokens": block_summary["tokens"] if block_summary else 0,
             # ไม่รู้ราคา → None ไม่ใช่ 0.0 · ศูนย์ที่แปลว่า "ไม่รู้" อ่านเป็น "ฟรี"
             "cost": round(block_summary["cost"], 2) if (known and block_summary) else None,
             "calls": block_summary["calls"] if block_summary else 0,
-            "resetAt": block["end"].isoformat().replace("+00:00", "Z") if block else None,
+            "resetAt": (reset_at.isoformat().replace("+00:00", "Z") if reset_at
+                        else (block["end"].isoformat().replace("+00:00", "Z") if block else None)),
             "weekTokens": week["tokens"],
             "weekCost": round(week["cost"], 2) if known else None,
-            "weekPct": None,
+            "weekPct": week_pct,
             "profile": acc.get("profile"),
             "plan": None,
             "costKnown": known,

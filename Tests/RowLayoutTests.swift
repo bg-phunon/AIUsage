@@ -58,4 +58,20 @@ final class RowLayoutTests: XCTestCase {
                                 weekTokens: 1_000_000, costKnown: false)
         XCTAssertFalse((rowFootnote(unknown, price: nil, now: Date()) ?? "").contains("$0.00"))
     }
+
+    /// Qwen Cloud ตอน weekly เต็ม: 5h ไม่มีข้อมูล เวลารีเซ็ตต้องไปอยู่แถว 7d
+    func testResetTimeFollowsTheRowThatHasData() {
+        let reset = Date().addingTimeInterval(3600)
+        let qwen = UsageItem(group: "Qwen Cloud", label: "default", window: "5 ชม.",
+                             pct: nil, resetAt: reset, weekPct: 100,
+                             pctSource: "official", weekConfidence: "valid")
+        let rows = windowRows(qwen)
+        XCTAssertNil(rows[0].resetAt)
+        XCTAssertEqual(rows[1].resetAt, reset)
+
+        let claude = UsageItem(group: "Claude Code", label: "default", window: "5 ชม.",
+                               pct: 12, resetAt: reset, weekPct: 96,
+                               confidence: "valid", weekConfidence: "valid")
+        XCTAssertEqual(windowRows(claude)[0].resetAt, reset, "มี 5h อยู่แล้ว เกาะที่เดิม")
+    }
 }

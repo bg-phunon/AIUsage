@@ -502,11 +502,15 @@ struct WindowRow {
 
 /// สองแถวเสมอ ไม่ว่าถังนั้นจะมีข้อมูลหรือไม่ — ความสูงคงที่คือสิ่งที่ทำให้กวาดตาลงคอลัมน์ได้
 func windowRows(_ item: UsageItem) -> [WindowRow] {
-    [WindowRow(label: "5h", pct: item.pct,
-               sure: certainty(confidence: item.confidence), resetAt: item.resetAt),
+    // เวลารีเซ็ตเกาะแถวที่มีตัวเลขจริง — ถ้า 5h ไม่มีข้อมูล (เช่น Qwen Cloud
+    // ที่ weekly เต็ม) เวลารีเซ็ตของ weekly ต้องไปโชว์ที่แถว 7d ไม่ใช่หายไปเฉยๆ
+    let resetOnWeek = item.pct == nil && item.weekPct != nil
+    return [WindowRow(label: "5h", pct: item.pct,
+               sure: certainty(confidence: item.confidence),
+               resetAt: resetOnWeek ? nil : item.resetAt),
      WindowRow(label: "7d", pct: item.weekPct,
                sure: certainty(confidence: item.weekConfidence ?? item.confidence),
-               resetAt: nil)]
+               resetAt: resetOnWeek ? item.resetAt : nil)]
 }
 
 
