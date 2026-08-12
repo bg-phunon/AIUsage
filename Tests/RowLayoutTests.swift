@@ -4,7 +4,7 @@ import XCTest
 final class RowLayoutTests: XCTestCase {
 
     func testWindowRowsAlwaysDescribeBothWindows() {
-        // windowRows เป็นข้อมูลดิบ — สองหน้าต่างเสมอ ส่วนจะวาดกี่แถวเป็นเรื่องของ displayableWindows
+        // windowRows เป็นข้อมูลดิบ — สองหน้าต่างหลักเสมอ ส่วนจะวาดกี่แถวเป็นเรื่องของ displayableWindows
         let full = UsageItem(group: "Claude Code", label: "default", window: "5 ชม.",
                              pct: 12, weekPct: 5, confidence: "valid", weekConfidence: "valid")
         XCTAssertEqual(windowRows(full).count, 2)
@@ -36,6 +36,33 @@ final class RowLayoutTests: XCTestCase {
     func testLabelsAreFixedAndShort() {
         XCTAssertEqual(windowRows(UsageItem(group: "g", label: "l", window: "w")).map(\.label),
                        ["5h", "7d"])
+    }
+
+    // MARK: - gauge เฉพาะโมเดล (เช่น Fable)
+
+    /// gauge ของ Fable ต้องได้แถวของตัวเองต่อท้าย 5h/7d ไม่ถูกกลืนหายไปใน 7d
+    func testModelGaugeGetsItsOwnRow() {
+        let item = UsageItem(group: "Claude Code", label: "default", window: "5 ชม.",
+                             pct: 12, weekPct: 5, confidence: "valid", weekConfidence: "valid",
+                             modelWindows: [ModelWindow(label: "Fable", pct: 30,
+                                                        resetAt: Date().addingTimeInterval(3600),
+                                                        confidence: "valid")])
+        let rows = displayableWindows(item)
+        XCTAssertEqual(rows.map(\.label), ["5h", "7d", "Fable"])
+        XCTAssertEqual(rows[2].pct, 30)
+        XCTAssertEqual(rows[2].sure, .exact)
+    }
+
+    /// snapshot เก่าที่ไม่มีฟิลด์ modelWindows ต้องถอดรหัสได้เหมือนเดิม
+    func testDecodingWithoutModelWindowsStillWorks() {
+        let json = """
+        {"generated": "2026-08-12T00:00:00Z", "items": [
+          {"group": "Claude Code", "label": "d", "window": "5h",
+           "tokens": 1, "calls": 0, "weekTokens": 1}]}
+        """.data(using: .utf8)!
+        let snap = UsageSnapshot.decode(from: json)
+        XCTAssertNotNil(snap)
+        XCTAssertEqual(snap?.items.first?.modelWindows, [])
     }
 
     /// เชิงอรรถต้องเป็นบรรทัดเดียวสั้นๆ ไม่ใช่ประโยคยาวที่ลากไปตัดบรรทัด

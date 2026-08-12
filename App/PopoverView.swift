@@ -316,7 +316,9 @@ struct PopoverView: View {
                         Text(window.label)
                             .font(.system(size: 10, weight: .semibold, design: .rounded))
                             .foregroundStyle(.primary.opacity(0.62))
-                            .frame(width: 20, alignment: .leading)
+                            .lineLimit(1)
+                            // 32 พอกับป้ายโมเดลอย่าง "Fable" — 20 เดิมพอแค่ "5h"/"7d"
+                            .frame(width: 32, alignment: .leading)
                         bar(window, tint: item.tint)
                         Text(pctText(window.pct, window.sure))
                             .font(.system(size: 10, weight: .medium, design: .rounded))
@@ -512,7 +514,7 @@ struct WindowRow {
     let resetAt: Date?
 }
 
-/// สองแถวเสมอ ไม่ว่าถังนั้นจะมีข้อมูลหรือไม่ — ความสูงคงที่คือสิ่งที่ทำให้กวาดตาลงคอลัมน์ได้
+/// สองแถวหลัก (5h, 7d) + gauge เฉพาะโมเดลที่ Anthropic แถมมา (เช่น weekly ของ Fable)
 func windowRows(_ item: UsageItem) -> [WindowRow] {
     // เวลารีเซ็ตเกาะแถวที่มีตัวเลขจริง — ถ้า 5h ไม่มีข้อมูล (เช่น Qwen Cloud
     // ที่ weekly เต็ม) เวลารีเซ็ตของ weekly ต้องไปโชว์ที่แถว 7d ไม่ใช่หายไปเฉยๆ
@@ -523,6 +525,11 @@ func windowRows(_ item: UsageItem) -> [WindowRow] {
      WindowRow(label: "7d", pct: item.weekPct,
                sure: certainty(confidence: item.weekConfidence ?? item.confidence),
                resetAt: resetOnWeek ? item.resetAt : nil)]
+    + item.modelWindows.map { mw in
+        WindowRow(label: mw.label, pct: mw.pct,
+                  sure: certainty(confidence: mw.confidence),
+                  resetAt: mw.resetAt)
+    }
 }
 
 

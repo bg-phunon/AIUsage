@@ -1,6 +1,14 @@
 import Foundation
 import SwiftUI
 
+/// gauge เฉพาะโมเดล (เช่น weekly ของ Fable) — แถวเสริมใต้ 5h/7d ไม่ปนกับตัวรวม
+struct ModelWindow: Codable, Hashable {
+    var label: String
+    var pct: Double?
+    var resetAt: Date?
+    var confidence: String?
+}
+
 struct UsageItem: Codable, Identifiable, Hashable {
     var group: String
     var label: String
@@ -30,11 +38,13 @@ struct UsageItem: Codable, Identifiable, Hashable {
     var costEstimated: Bool = false
     /// "notional" = จ่ายเหมาไปแล้ว ตัวเลขคือมูลค่าถ้ายิงผ่าน API ไม่ใช่บิล
     var costKind: String? = nil
+    var modelWindows: [ModelWindow] = []
 
     enum CodingKeys: String, CodingKey {
         case group, label, window, pct, tokens, cost, calls, resetAt, weekTokens, weekCost, weekPct
         case profile, plan, pctSource, confidence, weekConfidence, dataFetchedAt, severity
         case activeLimit, error, local, costKnown, costCurrency, costSource, costEstimated, costKind
+        case modelWindows
     }
 
     /// ตัวสร้างแบบระบุเอง — struct ที่มี init(from:) จะไม่ได้ memberwise init อัตโนมัติ
@@ -47,7 +57,8 @@ struct UsageItem: Codable, Identifiable, Hashable {
          dataFetchedAt: Date? = nil, severity: String? = nil, activeLimit: String? = nil,
          error: String? = nil, local: Bool? = nil, costKnown: Bool = false,
          costCurrency: String? = nil, costSource: String? = nil,
-         costEstimated: Bool = false, costKind: String? = nil) {
+         costEstimated: Bool = false, costKind: String? = nil,
+         modelWindows: [ModelWindow] = []) {
         self.group = group; self.label = label; self.window = window; self.pct = pct
         self.tokens = tokens; self.cost = cost; self.calls = calls; self.resetAt = resetAt
         self.weekTokens = weekTokens; self.weekCost = weekCost; self.weekPct = weekPct
@@ -58,6 +69,7 @@ struct UsageItem: Codable, Identifiable, Hashable {
         self.costKnown = costKnown; self.costCurrency = costCurrency
         self.costSource = costSource; self.costEstimated = costEstimated
         self.costKind = costKind
+        self.modelWindows = modelWindows
     }
 
     init(from decoder: Decoder) throws {
@@ -88,6 +100,7 @@ struct UsageItem: Codable, Identifiable, Hashable {
         costSource = try c.decodeIfPresent(String.self, forKey: .costSource)
         costEstimated = try c.decodeIfPresent(Bool.self, forKey: .costEstimated) ?? false
         costKind = try c.decodeIfPresent(String.self, forKey: .costKind)
+        modelWindows = try c.decodeIfPresent([ModelWindow].self, forKey: .modelWindows) ?? []
     }
 
     var id: String { "\(group)/\(label)" }

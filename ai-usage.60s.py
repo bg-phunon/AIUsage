@@ -598,7 +598,56 @@ CONTRACT_DEFAULTS = {
     "severity": None, "activeLimit": None, "error": None, "local": False,
     "weekConfidence": None, "costKnown": False, "costCurrency": None,
     "costSource": None, "costEstimated": False, "costKind": None,
+    "modelWindows": [],
 }
+
+
+def utilization_fields(util, last_activity, now):
+    """แปลง Utilization เป็นฟิลด์ของ item — แยกจาก collect() ให้เทสต์ได้ตรงๆ
+
+    weekPct คือหน้าต่างรวมทุกโมเดล (weekly_all) — gauge เฉพาะโมเดลอย่าง Fable
+    แยกออกมาเป็น modelWindows ไม่ถูก max() กลืนเข้าไปใน 7d อีกต่อไป
+    """
+    out = {"pct": None, "confidence": None, "weekPct": None, "weekConfidence": None,
+           "pctSource": None, "severity": None, "activeLimit": None,
+           "resetAt": None, "modelWindows": []}
+    session = next((w for w in util.windows if w.kind == "session"), None)
+    weeklies = [w for w in util.windows if w.kind.startswith("weekly")]
+    unscoped = [w for w in weeklies if not w.scope]
+    weekly_all = max(unscoped or weeklies, key=lambda w: w.percent, default=None)
+
+    active = next((w for w in util.windows if w.is_active), None)
+    if active is not None:
+        out["severity"], out["activeLimit"] = active.severity, active.scope or active.kind
+    else:
+        worst_week = max(weeklies, key=lambda w: w.percent, default=None)
+        if worst_week is not None:
+            out["severity"] = worst_week.severity
+
+    def resolved(window):
+        conf = _util.window_confidence(window, util.fetched_at, last_activity, now)
+        pct = 0.0 if conf == _util.CONFIRMED_ZERO else window.percent
+        return (None if conf == _util.UNSURE else pct), conf
+
+    if session is not None:
+        out["pct"], out["confidence"] = resolved(session)
+        out["pctSource"] = "official" if out["pct"] is not None else None
+        out["resetAt"] = session.resets_at
+    if weekly_all is not None:
+        out["weekPct"], out["weekConfidence"] = resolved(weekly_all)
+    for w in weeklies:
+        if not w.scope or w is weekly_all:
+            continue
+        pct, conf = resolved(w)
+        if pct is None:
+            continue  # gauge ที่ไม่รู้ค่าไม่ต้องงอกเป็นแถวจุดประ
+        out["modelWindows"].append({
+            "label": w.scope, "pct": round(pct, 1), "confidence": conf,
+            "resetAt": w.resets_at.isoformat().replace("+00:00", "Z"),
+        })
+    if out["pctSource"] is None and out["weekPct"] is not None:
+        out["pctSource"] = "official"
+    return out
 
 
 def with_contract(item):
@@ -769,32 +818,18 @@ def collect():
         pct = week_pct = None
         week_confidence = None
         pct_source = confidence = fetched_at = severity = active_limit = None
+        model_windows = []
         reset_at = block["end"] if block else None
         if util:
             fetched_at = util.fetched_at.isoformat().replace("+00:00", "Z")
-            last_activity = st.get("lastActivity")
-            session = next((w for w in util.windows if w.kind == "session"), None)
-            weekly = max((w for w in util.windows if w.kind.startswith("weekly")),
-                         key=lambda w: w.percent, default=None)
-            active = next((w for w in util.windows if w.is_active), None)
-            if active is not None:
-                severity, active_limit = active.severity, active.scope or active.kind
-            elif weekly is not None:
-                severity = weekly.severity
-            if session is not None:
-                confidence = _util.window_confidence(session, util.fetched_at, last_activity, now)
-                pct = 0.0 if confidence == _util.CONFIRMED_ZERO else session.percent
-                if confidence == _util.UNSURE:
-                    pct = None
-                pct_source = "official" if pct is not None else None
-                reset_at = session.resets_at
-            if weekly is not None:
-                week_confidence = _util.window_confidence(weekly, util.fetched_at, last_activity, now)
-                week_pct = 0.0 if week_confidence == _util.CONFIRMED_ZERO else weekly.percent
-                if week_confidence == _util.UNSURE:
-                    week_pct = None
-            if pct_source is None and week_pct is not None:
-                pct_source = "official"
+            uf = utilization_fields(util, st.get("lastActivity"), now)
+            pct, confidence = uf["pct"], uf["confidence"]
+            week_pct, week_confidence = uf["weekPct"], uf["weekConfidence"]
+            pct_source = uf["pctSource"]
+            severity, active_limit = uf["severity"], uf["activeLimit"]
+            model_windows = uf["modelWindows"]
+            if uf["resetAt"] is not None:
+                reset_at = uf["resetAt"]
 
         items.append(with_contract({
             "group": "Claude Code", "label": acc["label"], "window": "5 ชม.",
@@ -810,6 +845,7 @@ def collect():
             "pctSource": pct_source, "confidence": confidence, "dataFetchedAt": fetched_at,
             "severity": severity, "activeLimit": active_limit,
             "weekConfidence": week_confidence,
+            "modelWindows": model_windows,
             "costKnown": bool(st.get("costKnown")),
             "costCurrency": "USD" if st.get("costKnown") else None,
             "costSource": "anthropic_public_rate" if st.get("costKnown") else None,
