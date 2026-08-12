@@ -113,9 +113,10 @@ def _read_backoff() -> dict:
         return {}
 
 
-def _mark_backoff(service: str) -> None:
+def _mark_backoff(service: str, step: str) -> None:
+    """จดเวลาที่พลาด + ขั้นที่พลาด (ชื่อขั้นล้วนๆ ไม่มี secret) ไว้ไล่ปัญหา"""
     data = _read_backoff()
-    data[service] = time.time()
+    data[service] = {"ts": time.time(), "step": step}
     try:
         os.makedirs(os.path.dirname(BACKOFF_PATH), exist_ok=True)
         with open(BACKOFF_PATH, "w", encoding="utf-8") as fh:
@@ -125,7 +126,8 @@ def _mark_backoff(service: str) -> None:
 
 
 def should_attempt_refresh(backoff: dict, service: str, now: float) -> bool:
-    last = backoff.get(service)
+    entry = backoff.get(service)
+    last = entry.get("ts") if isinstance(entry, dict) else entry
     return not isinstance(last, (int, float)) or now - last >= BACKOFF_SECONDS
 
 
@@ -159,12 +161,15 @@ def _refreshed_token(service: str, blob: dict) -> Optional[str]:
     if not should_attempt_refresh(_read_backoff(), service, time.time()):
         return None
     account = _keychain_account(service)
-    if account is None or not _write_credentials(service, account, blob):
-        _mark_backoff(service)
+    if account is None:
+        _mark_backoff(service, "account-attribute")
+        return None
+    if not _write_credentials(service, account, blob):
+        _mark_backoff(service, "write-rehearsal")
         return None
     resp = _oauth_refresh(refresh_token)
     if resp is None:
-        _mark_backoff(service)
+        _mark_backoff(service, "oauth-refresh")
         return None
     merged = merged_credentials(blob, resp, int(time.time() * 1000))
     _write_credentials(service, account, merged)
