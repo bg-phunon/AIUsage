@@ -125,6 +125,30 @@ def _mark_backoff(service: str, step: str) -> None:
         pass
 
 
+_READ_STAGE_STEPS = frozenset({"keychain-read", "no-access-token", "no-refresh-token"})
+
+
+def _clear_backoff(service: str, steps=None) -> None:
+    """ลบร่องรอยของ service — steps=None ลบทุกแบบ ไม่งั้นลบเฉพาะขั้นที่ระบุ
+
+    สำคัญตอนผู้ใช้เพิ่งแก้สิทธิ์ Keychain: ถ้า breadcrumb ขั้นอ่านค้างอยู่
+    มันจะไปหน่วงการรีเฟรชอีก 15 นาทีทั้งที่ปัญหาแก้แล้ว
+    """
+    data = _read_backoff()
+    entry = data.get(service)
+    if entry is None:
+        return
+    step = entry.get("step") if isinstance(entry, dict) else None
+    if steps is not None and step not in steps:
+        return
+    data.pop(service, None)
+    try:
+        with open(BACKOFF_PATH, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+    except OSError:
+        pass
+
+
 def should_attempt_refresh(backoff: dict, service: str, now: float) -> bool:
     entry = backoff.get(service)
     last = entry.get("ts") if isinstance(entry, dict) else entry
@@ -157,6 +181,7 @@ def _refreshed_token(service: str, blob: dict) -> Optional[str]:
     oauth = (blob or {}).get("claudeAiOauth") or {}
     refresh_token = oauth.get("refreshToken")
     if not isinstance(refresh_token, str) or not refresh_token:
+        _mark_backoff(service, "no-refresh-token")
         return None
     if not should_attempt_refresh(_read_backoff(), service, time.time()):
         return None
@@ -175,19 +200,29 @@ def _refreshed_token(service: str, blob: dict) -> Optional[str]:
     _write_credentials(service, account, merged)
     # เขียนรอบจริงพลาดทั้งที่ซ้อมผ่าน = โชคร้ายจริงๆ — token ใหม่ยังใช้ได้รอบนี้
     # และการซ้อมทำให้เคสนี้แทบเป็นไปไม่ได้ ไม่ log อะไรเพราะห้ามมีร่องรอย token
+    _clear_backoff(service)
     return merged["claudeAiOauth"]["accessToken"]
 
 
 def _read_token(config_dir: str) -> Optional[str]:
-    """access token ที่พร้อมใช้ — สดอยู่ใช้เลย หมดอายุแล้วต่ออายุเองเงียบๆ"""
+    """access token ที่พร้อมใช้ — สดอยู่ใช้เลย หมดอายุแล้วต่ออายุเองเงียบๆ
+
+    เส้นทางล้มเหลว "เงียบ" ทุกทางทิ้ง breadcrumb (ชื่อขั้น ไม่มี secret)
+    ไว้ในไฟล์ backoff — บทเรียนจากการไล่บัญชี work ที่หายแบบไร้ร่องรอย
+    """
     service = keychain_service(config_dir)
     blob = _read_credentials(service)
     if blob is None:
+        _mark_backoff(service, "keychain-read")
         return None
     oauth = blob.get("claudeAiOauth") or {}
     token = oauth.get("accessToken")
     if not isinstance(token, str) or not token:
+        _mark_backoff(service, "no-access-token")
         return None
+    # อ่านผ่านแล้ว — ล้าง breadcrumb ขั้นอ่านทิ้ง ไม่ให้ไปหน่วงการรีเฟรชข้างล่าง
+    # (ความล้มเหลวขั้น refresh เช่น oauth-refresh ยังต้องคง 15 นาทีของมันไว้)
+    _clear_backoff(service, steps=_READ_STAGE_STEPS)
     expires_ms = oauth.get("expiresAt")
     if isinstance(expires_ms, (int, float)) and expires_ms / 1000.0 <= time.time():
         # บัญชีที่ไม่ได้เปิดใช้ Claude Code จะไม่มีใครต่ออายุให้ — เราต่อเอง
