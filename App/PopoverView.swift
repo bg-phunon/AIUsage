@@ -76,6 +76,8 @@ struct PopoverView: View {
         }
         .frame(width: 380, height: 560)
         .background { panelBackground }
+        // accent ของสไตล์คุมสีปุ่ม/ลิงก์ทั้งบาน — ไม่งั้นสลับสไตล์แล้ว "ไม่เห็นต่าง"
+        .tint(model.designStyle.accent)
         .preferredColorScheme(model.designStyle == .native ? nil : .dark)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay {
@@ -190,10 +192,9 @@ struct PopoverView: View {
                 Color(red: 0.07, green: 0.07, blue: 0.10).opacity(0.62)
             }
         case .native:
-            ZStack {
-                VisualEffectBackground(material: .popover)
-                Color(nsColor: .windowBackgroundColor).opacity(0.86)
-            }
+            // native แปลว่าทึบและแบนแบบหน้าต่างระบบ — ไม่มี blur ให้ต่างจาก
+            // Liquid Glass ชัดๆ ไม่ใช่มืดพอกันจนสลับแล้วมองไม่ออก
+            Color(nsColor: .windowBackgroundColor)
         case .colorful:
             LinearGradient(colors: [Color(red: 0.07, green: 0.05, blue: 0.18),
                                     Color(red: 0.025, green: 0.045, blue: 0.10)],
@@ -346,12 +347,14 @@ struct PopoverView: View {
         }
         .overlay {
             // ขอบชั้นเดียว + แสงขอบบนจางๆ — สองเส้นหนาซ้อนกันคือสิ่งที่ทำให้ดู "หนา"
+            // native ไม่มีแสงขอบเลย: กระจกคือภาษาของสไตล์ A ไม่ใช่ของหน้าต่างระบบ
             RoundedRectangle(cornerRadius: 15, style: .continuous)
-                .stroke(cardStroke(for: item), lineWidth: 0.5)
+                .stroke(cardStroke(for: item), lineWidth: model.designStyle == .native ? 1 : 0.5)
                 .overlay {
                     RoundedRectangle(cornerRadius: 15, style: .continuous)
                         .strokeBorder(model.designStyle.rimHighlight, lineWidth: 1)
-                        .opacity(model.designStyle == .colorful ? 0.55 : 0.35)
+                        .opacity(model.designStyle == .colorful ? 0.55
+                                 : model.designStyle == .native ? 0 : 0.35)
                 }
         }
         .shadow(color: model.designStyle == .native ? Color.black.opacity(0.07) : .clear,
