@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import unittest
@@ -60,6 +61,53 @@ class WindowsFromLimitsTest(unittest.TestCase):
     def test_none_and_empty_are_empty(self):
         self.assertEqual(windows_from_limits(None), [])
         self.assertEqual(windows_from_limits([]), [])
+
+
+class MergedCredentialsTest(unittest.TestCase):
+    """รวม token ใหม่เข้า blob เดิม — field แปลกหน้าต้องรอดครบทุกตัว"""
+
+    BLOB = {"claudeAiOauth": {"accessToken": "old", "refreshToken": "r1",
+                              "expiresAt": 1000, "scopes": ["user:inference"],
+                              "subscriptionType": "team"},
+            "somethingElse": {"keep": True}}
+
+    def test_rotated_refresh_token_replaces_old(self):
+        out = liveusage.merged_credentials(
+            self.BLOB, {"access_token": "new", "refresh_token": "r2",
+                        "expires_in": 3600}, now_ms=1_000_000)
+        oauth = out["claudeAiOauth"]
+        self.assertEqual(oauth["accessToken"], "new")
+        self.assertEqual(oauth["refreshToken"], "r2")
+        self.assertEqual(oauth["expiresAt"], 1_000_000 + 3600 * 1000 - 60_000)
+        self.assertEqual(oauth["scopes"], ["user:inference"])
+        self.assertEqual(oauth["subscriptionType"], "team")
+        self.assertEqual(out["somethingElse"], {"keep": True})
+
+    def test_missing_rotation_keeps_old_refresh_token(self):
+        out = liveusage.merged_credentials(
+            self.BLOB, {"access_token": "new"}, now_ms=0)
+        self.assertEqual(out["claudeAiOauth"]["refreshToken"], "r1")
+        self.assertEqual(out["claudeAiOauth"]["expiresAt"], 1000,
+                         "ไม่มี expires_in ก็อย่าเดา — คงค่าเดิม")
+
+    def test_original_blob_is_not_mutated(self):
+        before = json.loads(json.dumps(self.BLOB))
+        liveusage.merged_credentials(self.BLOB, {"access_token": "new"}, now_ms=0)
+        self.assertEqual(self.BLOB, before)
+
+
+class RefreshBackoffTest(unittest.TestCase):
+    def test_first_attempt_is_allowed(self):
+        self.assertTrue(liveusage.should_attempt_refresh({}, "svc", now=100.0))
+
+    def test_recent_failure_blocks_retry(self):
+        backoff = {"svc": 100.0}
+        self.assertFalse(liveusage.should_attempt_refresh(backoff, "svc", now=100.0 + 60))
+        self.assertTrue(liveusage.should_attempt_refresh(
+            backoff, "svc", now=100.0 + liveusage.BACKOFF_SECONDS))
+
+    def test_other_services_are_independent(self):
+        self.assertTrue(liveusage.should_attempt_refresh({"a": 100.0}, "b", now=101.0))
 
 
 if __name__ == "__main__":
