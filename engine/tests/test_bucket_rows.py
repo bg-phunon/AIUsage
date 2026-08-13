@@ -98,14 +98,20 @@ class BucketRowsQwenHitTest(unittest.TestCase):
 
     def test_dashboard_anchor_shows_as_lower_bound(self):
         """จุดยึดจากแดชบอร์ด: % ที่ใช้ไปมีแต่เพิ่ม จึงเป็น lower bound แท้ๆ"""
+        self.write([usage_record(self.now - timedelta(hours=1), "deepseek-v4-flash-0731")])
         rows = engine.bucket_rows(self.acc, TABLE, self.anchor())
-        self.assertEqual(len(rows), 1, "มี anchor ก็ต้องมีถัง แม้ไม่มี traffic")
+        self.assertEqual(len(rows), 1)
         row = rows[0]
         self.assertEqual(row["weekPct"], 4.8)
         self.assertEqual(row["weekConfidence"], "lower_bound")
         self.assertIsNone(row["pctSource"], "anchor ไม่ใช่ตัวเลขทางการ")
         self.assertEqual(row["dataFetchedAt"], iso_z(self.now - timedelta(hours=3)))
         self.assertEqual(row["resetAt"], iso_z(self.now + timedelta(days=6)))
+
+    def test_anchor_does_not_conjure_buckets(self):
+        """bucket_rows รันทุกบัญชี — anchor ที่เสกถังได้จะงอก Qwen ซ้ำทุกบัญชี
+        ทั้งที่แผนมีใบเดียว (เคยเกิดจริง: 4.8% โผล่ 4 แถว)"""
+        self.assertEqual(engine.bucket_rows(self.acc, TABLE, self.anchor()), [])
 
     def test_expired_anchor_is_ignored(self):
         """หน้าต่างรีเซ็ตไปแล้ว ค่าจดเก่าไม่ใช่ lower bound ของหน้าต่างใหม่"""

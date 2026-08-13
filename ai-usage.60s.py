@@ -740,9 +740,10 @@ def bucket_rows(acc, table, qwen_anchor=None):
 
     # ถังที่ exhausted ห้ามหายเพียงเพราะไม่มี traffic — โควตาเต็มแปลว่าใช้ไม่ได้
     # แปลว่าจะไม่มี traffic ใหม่โดยธรรมชาติ ยิ่งเต็มนานยิ่งเสี่ยงหายจากจอ
-    # (anchor จากแดชบอร์ดที่ยังไม่หมดอายุก็เช่นกัน — มีข้อมูลให้แสดงก็ต้องมีถัง)
+    # (anchor ไม่เสกถัง — bucket_rows รันทุกบัญชี ถ้าเสกจะได้ถัง Qwen ซ้ำ
+    # ทุกบัญชีทั้งที่แผนมีใบเดียว เคยพลาดมาแล้ว: 4.8% โผล่ 4 แถว)
     anchor_active = qwen_anchor is not None and qwen_anchor["resetAt"] > now
-    if any(reset > now for reset in hits.values()) or anchor_active:
+    if any(reset > now for reset in hits.values()):
         for bucket in set(table.values()):
             if bucket.name == "Qwen Cloud":
                 grouped.setdefault(bucket, [])
