@@ -427,6 +427,21 @@ def calibrate_budget5h(entries, hits):
     return samples[len(samples) // 2] if samples else None
 
 
+def account_utilization(config_dir):
+    """สด → สดล่าสุดที่เคยได้ → แคชของ Claude Code — อันไหนใหม่สุดชนะ
+
+    เน็ตสะดุดรอบเดียวเคยทำเลขกะพริบหาย: live พลาดแล้วดิ่งไปแคชเก่าที่
+    unsure ทันที ทั้งที่ 60 วิก่อนเพิ่งได้ตัวเลขทางการ — จำผลสดล่าสุดไว้
+    เลขจะค่อยๆ เสื่อมเป็น lower_bound ตามอายุจริง ไม่ใช่ดับวูบ
+    """
+    live = _liveu.fetch_utilization(config_dir)
+    if live is not None:
+        return live
+    candidates = [u for u in (_liveu.cached_live_utilization(config_dir),
+                              _util.read_utilization(config_dir)) if u is not None]
+    return max(candidates, key=lambda u: u.fetched_at, default=None)
+
+
 def claude_account_stats(acc):
     since = now_utc() - timedelta(days=WEEK_DAYS)
     entries = claude_entries(acc["dir"], since)
@@ -440,9 +455,7 @@ def claude_account_stats(acc):
         "models": sorted({m.split("-")[1] for _, _, m in entries[-40:] if m.count("-") >= 1}),
         "plan": account_plan(acc["dir"]),
         "budget5hAuto": calibrate_budget5h(entries, hits),
-        # สดก่อน แคชทีหลัง — endpoint ล่ม/token หมดอายุ/ผู้ใช้ Deny คีย์เชน
-        # ทุกกรณีตกกลับมาที่พฤติกรรมเดิมโดยไม่มีอะไรพัง
-        "utilization": _liveu.fetch_utilization(acc["dir"]) or _util.read_utilization(acc["dir"]),
+        "utilization": account_utilization(acc["dir"]),
         "lastActivity": entries[-1][0] if entries else None,
         "costKnown": costs_known(entries),
     }

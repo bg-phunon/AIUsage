@@ -96,6 +96,41 @@ class MergedCredentialsTest(unittest.TestCase):
         self.assertEqual(self.BLOB, before)
 
 
+class LiveCacheTest(unittest.TestCase):
+    """ผลสดครั้งล่าสุดรอดข้ามรอบ — กันเลขกะพริบหายตอน live พลาดหนึ่งรอบ"""
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = os.path.join(self.tmp.name, "live-cache.json")
+        self.dir = "/Users/phunonkoysawat/.ccs/instances/mooz"
+        self.svc = liveusage.keychain_service(self.dir)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    LIMITS = [{"kind": "session", "percent": 14, "resets_at": "2026-08-13T09:00:00Z"}]
+
+    def test_roundtrip(self):
+        liveusage._store_live(self.svc, self.LIMITS, 1_700_000_000_000, path=self.path)
+        util = liveusage.cached_live_utilization(self.dir, path=self.path)
+        self.assertIsNotNone(util)
+        self.assertEqual(util.windows[0].percent, 14)
+        self.assertEqual(int(util.fetched_at.timestamp() * 1000), 1_700_000_000_000)
+
+    def test_missing_or_garbage_is_none(self):
+        self.assertIsNone(liveusage.cached_live_utilization(self.dir, path=self.path))
+        with open(self.path, "w", encoding="utf-8") as fh:
+            fh.write("not json")
+        self.assertIsNone(liveusage.cached_live_utilization(self.dir, path=self.path))
+
+    def test_store_never_contains_token_like_keys(self):
+        liveusage._store_live(self.svc, self.LIMITS, 1, path=self.path)
+        text = open(self.path, encoding="utf-8").read().lower()
+        for word in ("token", "secret", "authorization"):
+            self.assertNotIn(word, text)
+
+
 class RefreshBackoffTest(unittest.TestCase):
     def test_first_attempt_is_allowed(self):
         self.assertTrue(liveusage.should_attempt_refresh({}, "svc", now=100.0))

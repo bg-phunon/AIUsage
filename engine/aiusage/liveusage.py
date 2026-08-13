@@ -37,6 +37,10 @@ OAUTH_BETA = "oauth-2025-04-20"
 BACKOFF_PATH = os.path.join(os.path.expanduser("~"), ".config", "ai-usage",
                             "oauth-backoff.json")
 BACKOFF_SECONDS = 900
+# ผลสดครั้งล่าสุดต่อบัญชี — เฉพาะตัวเลข % กับเวลา ไม่มีชิ้นส่วนของ token
+# ไว้กันเลขกะพริบหายตอน live พลาดหนึ่งรอบ (เน็ตสะดุด/token กำลังต่ออายุ)
+LIVE_CACHE_PATH = os.path.join(os.path.expanduser("~"), "Library",
+                               "Application Support", "AIUsage", "live-cache.json")
 
 
 def keychain_service(config_dir: str) -> str:
@@ -231,6 +235,41 @@ def _read_token(config_dir: str) -> Optional[str]:
     return token
 
 
+def _store_live(service: str, limits, fetched_ms: int, path: str = LIVE_CACHE_PATH) -> None:
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        if not isinstance(data, dict):
+            data = {}
+    except (OSError, ValueError):
+        data = {}
+    data[service] = {"fetchedAtMs": fetched_ms, "limits": limits}
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+    except (OSError, TypeError):
+        pass
+
+
+def cached_live_utilization(config_dir: str, path: str = LIVE_CACHE_PATH) -> Optional[Utilization]:
+    """ผลสดครั้งล่าสุดที่เคยได้ — window_confidence จัดการความเก่าเองตามเวลา fetch"""
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    entry = (data or {}).get(keychain_service(config_dir))
+    if not isinstance(entry, dict):
+        return None
+    fetched_ms = entry.get("fetchedAtMs")
+    windows = windows_from_limits(entry.get("limits"))
+    if not isinstance(fetched_ms, (int, float)) or not windows:
+        return None
+    return Utilization(fetched_at=datetime.fromtimestamp(fetched_ms / 1000, timezone.utc),
+                       windows=windows)
+
+
 def fetch_utilization(config_dir: str, timeout: float = 3.5) -> Optional[Utilization]:
     """คืน Utilization สด (fetched_at = ตอนนี้) หรือ None ให้ผู้เรียกตกไปใช้แคช"""
     token = _read_token(config_dir)
@@ -251,4 +290,7 @@ def fetch_utilization(config_dir: str, timeout: float = 3.5) -> Optional[Utiliza
     windows = windows_from_limits(data.get("limits"))
     if not windows:
         return None
-    return Utilization(fetched_at=datetime.now(timezone.utc), windows=windows)
+    now = datetime.now(timezone.utc)
+    _store_live(keychain_service(config_dir), data.get("limits"),
+                int(now.timestamp() * 1000))
+    return Utilization(fetched_at=now, windows=windows)
