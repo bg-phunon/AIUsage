@@ -91,6 +91,36 @@ class BucketRowsQwenHitTest(unittest.TestCase):
         row = engine.bucket_rows(self.acc, TABLE)[0]
         self.assertEqual(row["dataFetchedAt"], iso_z(seen))
 
+    def anchor(self, used=4.8, at_hours_ago=3, reset_in_days=6):
+        return {"usedPct": used,
+                "at": self.now - timedelta(hours=at_hours_ago),
+                "resetAt": self.now + timedelta(days=reset_in_days)}
+
+    def test_dashboard_anchor_shows_as_lower_bound(self):
+        """จุดยึดจากแดชบอร์ด: % ที่ใช้ไปมีแต่เพิ่ม จึงเป็น lower bound แท้ๆ"""
+        rows = engine.bucket_rows(self.acc, TABLE, self.anchor())
+        self.assertEqual(len(rows), 1, "มี anchor ก็ต้องมีถัง แม้ไม่มี traffic")
+        row = rows[0]
+        self.assertEqual(row["weekPct"], 4.8)
+        self.assertEqual(row["weekConfidence"], "lower_bound")
+        self.assertIsNone(row["pctSource"], "anchor ไม่ใช่ตัวเลขทางการ")
+        self.assertEqual(row["dataFetchedAt"], iso_z(self.now - timedelta(hours=3)))
+        self.assertEqual(row["resetAt"], iso_z(self.now + timedelta(days=6)))
+
+    def test_expired_anchor_is_ignored(self):
+        """หน้าต่างรีเซ็ตไปแล้ว ค่าจดเก่าไม่ใช่ lower bound ของหน้าต่างใหม่"""
+        stale = self.anchor(reset_in_days=-1)
+        self.assertEqual(engine.bucket_rows(self.acc, TABLE, stale), [])
+
+    def test_active_hit_beats_anchor(self):
+        """429 สดคือคำประกาศจากผู้ให้บริการ — ชนะค่าจดจากแดชบอร์ดเสมอ"""
+        reset = self.now + timedelta(days=2)
+        self.write([hit_record(self.now - timedelta(hours=1), reset)])
+        rows = engine.bucket_rows(self.acc, TABLE, self.anchor())
+        self.assertEqual(rows[0]["weekPct"], 100.0)
+        self.assertEqual(rows[0]["weekConfidence"], "valid")
+        self.assertEqual(rows[0]["pctSource"], "official")
+
     def test_hit_applies_to_bucket_with_traffic(self):
         reset = self.now + timedelta(days=2)
         self.write([

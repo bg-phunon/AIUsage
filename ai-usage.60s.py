@@ -705,7 +705,24 @@ def token_plan_hits(config_dir, since):
     return _q429.merge_hits(found), seen_at
 
 
-def bucket_rows(acc, table):
+def parse_qwen_anchor(raw):
+    """จุดยึดจากแดชบอร์ด Qwen — "% ที่ใช้ไปแล้ว ณ เวลาหนึ่ง" ในหน้าต่างสัปดาห์ปัจจุบัน
+
+    dashboard เป็น cookie-auth ดึงอัตโนมัติไม่ได้ ผู้ใช้จดค่ามาให้เป็นครั้งคราว
+    ค่านี้เป็น lower bound แท้ๆ ของปัจจุบัน (โควตามีแต่ใช้เพิ่ม ไม่มีคืน)
+    จนกว่าหน้าต่างจะรีเซ็ต — ตรงกับ semantics "lower_bound" ที่ UI มีอยู่แล้ว
+    """
+    if not isinstance(raw, dict):
+        return None
+    used = raw.get("weeklyUsedPct")
+    at = parse_ts(raw.get("at"))
+    reset = parse_ts(raw.get("resetAt"))
+    if not isinstance(used, (int, float)) or at is None or reset is None:
+        return None
+    return {"usedPct": float(used), "at": at, "resetAt": reset}
+
+
+def bucket_rows(acc, table, qwen_anchor=None):
     """แยก traffic ที่ไม่ใช่ Anthropic ตาม endpoint ของถังโควตา"""
     since = now_utc() - timedelta(days=WEEK_DAYS)
     entries = claude_entries(acc["dir"], since)
@@ -723,7 +740,9 @@ def bucket_rows(acc, table):
 
     # ถังที่ exhausted ห้ามหายเพียงเพราะไม่มี traffic — โควตาเต็มแปลว่าใช้ไม่ได้
     # แปลว่าจะไม่มี traffic ใหม่โดยธรรมชาติ ยิ่งเต็มนานยิ่งเสี่ยงหายจากจอ
-    if any(reset > now for reset in hits.values()):
+    # (anchor จากแดชบอร์ดที่ยังไม่หมดอายุก็เช่นกัน — มีข้อมูลให้แสดงก็ต้องมีถัง)
+    anchor_active = qwen_anchor is not None and qwen_anchor["resetAt"] > now
+    if any(reset > now for reset in hits.values()) or anchor_active:
         for bucket in set(table.values()):
             if bucket.name == "Qwen Cloud":
                 grouped.setdefault(bucket, [])
@@ -757,6 +776,12 @@ def bucket_rows(acc, table):
                     fetched_at = week_seen
             if pct is not None or week_pct is not None:
                 source = "official"
+            # ไม่มี 429 สดๆ ให้เชื่อ → ใช้จุดยึดจากแดชบอร์ด (lower bound ไม่ใช่ทางการ)
+            if week_pct is None and anchor_active and now >= qwen_anchor["at"]:
+                week_pct, week_conf = min(100.0, qwen_anchor["usedPct"]), "lower_bound"
+                fetched_at = qwen_anchor["at"]
+                if reset_at is None:
+                    reset_at = qwen_anchor["resetAt"]
 
         out.append(with_contract({
             "group": bucket.name,
@@ -855,7 +880,8 @@ def collect():
             "costKind": "notional" if (st.get("plan") and st.get("costKnown")) else None,
         }))
         try:
-            items.extend(bucket_rows(acc, bucket_table))
+            items.extend(bucket_rows(acc, bucket_table,
+                                     parse_qwen_anchor(cfg.get("qwenWeeklyAnchor"))))
         except Exception:  # noqa: BLE001
             pass
 
