@@ -50,6 +50,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                                                name: .aiUsageRefreshRequested, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(settingsChanged),
                                                name: .aiUsageSettingsChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(installUpdateFromMenu),
+                                               name: .aiUsageInstallUpdate, object: nil)
         // Preferences เป็น ObservableObject คนละตัวกับ UsageModel — เปลี่ยนหมุดแล้วจะไม่ทำให้
         // updateBar() ถูกเรียกเองจนกว่า timer 60 วิจะครบ ต้องสมัคร objectWillChange ตรงๆ
         // (มันยิง *ก่อน* ค่าเปลี่ยน จึงต้อง async ไปอ่านค่าหลังเปลี่ยนแล้ว)
@@ -99,18 +101,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func updateBar() {
         guard let button = statusItem.button else { return }
         let snapshot = model.snapshot
-        let segments = menuBarSegments(snapshot: snapshot, now: Date(),
-                                       wokeRecently: wokeRecently,
-                                       hidden: model.prefs.hidden,
-                                       pinned: model.prefs.pinned,
-                                       order: model.prefs.order)
+        let density = model.prefs.barDensity
+        let all = menuBarSegments(snapshot: snapshot, now: Date(),
+                                  wokeRecently: wokeRecently,
+                                  hidden: model.prefs.hidden,
+                                  pinned: model.prefs.pinned,
+                                  order: model.prefs.order)
+        let fitted = applyDensity(all, density)
+        let segments = fitted.segments
+        let shownIds = Set(segments.map(\.id))
+        let droppedIds = all.map(\.id).filter { !shownIds.contains($0) }
         let alert = hasUnpinnedCritical(snapshot: snapshot, pinned: model.prefs.pinned)
+            || hasCritical(snapshot: snapshot, ids: droppedIds)
         let age = snapshot.generated == .distantPast
             ? nil : Date().timeIntervalSince(snapshot.generated)
         let dimmed = freshness(snapshotAge: age, wokeRecently: wokeRecently) != .fresh
 
         let content = MenuBarContent(segments: segments, alert: alert, dimmed: dimmed,
-                                     tagBelowLogo: model.prefs.tagBelowLogo)
+                                     tagBelowLogo: model.prefs.tagBelowLogo,
+                                     gap: density.segmentGap, overflow: fitted.overflow)
         if let hosting = menuBarHosting {
             hosting.rootView = content
         } else {
@@ -137,11 +146,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         guard let button = statusItem.button else { return }
         if NSApp.currentEvent?.type == .rightMouseUp {
             let menu = NSMenu()
+            // ห้ามให้ NSMenu เปิด/ปิดรายการเอง ไม่งั้นแถวอัปเดตที่กดไม่ได้จะถูกเปิดกลับ
+            menu.autoenablesItems = false
             menu.addItem(withTitle: "เปิดรายละเอียด", action: #selector(openFromMenu), keyEquivalent: "")
+            menu.addItem(.separator())
+            let state = currentUpdateState()
+            let update = menu.addItem(withTitle: updateMenuTitle(state, now: Date()),
+                                      action: #selector(installUpdateFromMenu), keyEquivalent: "")
             menu.addItem(.separator())
             menu.addItem(withTitle: "ตั้งค่า…", action: #selector(openSettings), keyEquivalent: ",")
             menu.addItem(withTitle: "ออกจาก AI Usage", action: #selector(terminate), keyEquivalent: "q")
             menu.items.forEach { $0.target = self }
+            update.isEnabled = state.isActionable
             statusItem.menu = menu
             statusItem.button?.performClick(nil)
             statusItem.menu = nil
@@ -169,6 +185,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         if !popover.isShown { togglePopover() }
     }
 
+    /// ติดตั้งโค้ดใหม่ทับตัวเอง — ถามก่อนเสมอ เพราะแอปจะหายไปจากแถบเมนูระหว่าง build
+    @objc private func installUpdateFromMenu() {
+        guard let repo = InstallInfo.load()?.repo else { return }
+        let confirm = NSAlert()
+        confirm.messageText = "ติดตั้งโค้ดใหม่ทับเวอร์ชันที่ใช้อยู่?"
+        confirm.informativeText = """
+            build ใช้เวลาราว 1–2 นาที ช่วงท้ายแอปจะปิดตัวเองแล้วเปิดกลับมาใหม่ \
+            ไอคอนบนแถบเมนูจะหายไปชั่วครู่ — ข้อมูลโควตาไม่หาย
+            บันทึกไว้ที่ /tmp/aiusage-update.log
+            """
+        confirm.addButton(withTitle: "ติดตั้ง")
+        confirm.addButton(withTitle: "ยกเลิก")
+        NSApp.activate(ignoringOtherApps: true)
+        guard confirm.runModal() == .alertFirstButtonReturn else { return }
+
+        if !installUpdate(repo: repo) {
+            let failed = NSAlert()
+            failed.messageText = "เริ่มการติดตั้งไม่ได้"
+            failed.informativeText = "หา setup.sh ที่รันได้ใน \(repo) ไม่เจอ"
+            failed.runModal()
+        }
+    }
+
     @objc private func terminate() { NSApplication.shared.terminate(nil) }
 }
 
@@ -178,14 +217,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 /// เหตุผลที่ต้องเลิกใช้ attributed string: NSTextAttachment ไม่สน isTemplate
 /// โลโก้จึงถูกวาดเป็นสีดำดิบๆ จมหายไปกับวอลเปเปอร์ ในขณะที่ .renderingMode(.template)
 /// ของ SwiftUI ปรับสีตามธีมแถบเมนูให้ถูกต้อง
+///
+/// ตัวเลขบีบไม่ได้ (fixedSize + layoutPriority) — เมื่อ menu bar ให้พื้นที่ไม่ถึงที่ขอ
+/// SwiftUI จะบีบทุกช่องตามสัดส่วนแล้วช่องที่กว้างสุดโดนตัดเป็น "…" ก่อน
+/// (เคสจริง 2026-08-31: Codex อยู่ที่ 90/14 แต่บนแถบเห็นจุดไข่ปลา ถังอื่นอ่านได้ครบ)
+/// ป้ายบัญชีกับโลโก้เป็นของประดับ ยอมให้บีบได้ ตัวเลขคือเหตุผลที่แถบนี้มีอยู่
 struct MenuBarContent: View {
     let segments: [MenuBarSegment]
     let alert: Bool
     let dimmed: Bool
     var tagBelowLogo: Bool = true
+    var gap: CGFloat = 10
+    /// ถังที่ถูกตัดออกเพราะโหมดกะทัดรัด — 0 คือไม่ได้ตัดใคร
+    var overflow: Int = 0
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: gap) {
             if alert {
                 Circle().fill(Color.red).frame(width: 4, height: 4)
             }
@@ -224,13 +271,22 @@ struct MenuBarContent: View {
                         }
                         .font(.system(size: 9.5, weight: .bold))
                         .monospacedDigit()
+                        .fixedSize()
                     } else {
                         Text(segment.top)
                             .font(.system(size: 11.5, weight: .semibold))
                             .monospacedDigit()
+                            .fixedSize()
                     }
                 }
                 .opacity(segment.value == "–" ? 0.55 : 1)
+            }
+            if overflow > 0 {
+                // ถังที่ไม่ได้ขึ้นแถบต้องนับได้ ไม่ใช่หายเงียบ — กดเข้า popover ดูได้ครบ
+                Text("+\(overflow)")
+                    .font(.system(size: 9.5, weight: .bold))
+                    .monospacedDigit()
+                    .opacity(0.6)
             }
         }
         .padding(.horizontal, 6)

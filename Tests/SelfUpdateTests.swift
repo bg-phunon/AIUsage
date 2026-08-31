@@ -1,0 +1,147 @@
+import XCTest
+@testable import AIUsage
+
+final class SelfUpdateTests: XCTestCase {
+    private var root: URL!
+
+    override func setUp() {
+        super.setUp()
+        root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("aiusage-selfupdate-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() {
+        try? FileManager.default.removeItem(at: root)
+        super.tearDown()
+    }
+
+    @discardableResult
+    private func write(_ relative: String, modified: Date) -> URL {
+        let url = root.appendingPathComponent(relative)
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                 withIntermediateDirectories: true)
+        try? "x".write(to: url, atomically: true, encoding: .utf8)
+        try? FileManager.default.setAttributes([.modificationDate: modified],
+                                               ofItemAtPath: url.path)
+        return url
+    }
+
+    // MARK: - ข้อมูลที่ setup.sh ทิ้งไว้
+
+    func testInstallInfoReadsWhatSetupWrote() throws {
+        let path = root.appendingPathComponent("install.json")
+        try #"{"repo":"/tmp/repo","installedAt":1787000000,"version":"c4f528c","build":47}"#
+            .write(to: path, atomically: true, encoding: .utf8)
+        let info = try XCTUnwrap(InstallInfo.load(from: path.path))
+        XCTAssertEqual(info.repo, "/tmp/repo")
+        XCTAssertEqual(info.version, "c4f528c")
+        XCTAssertEqual(info.build, 47)
+        XCTAssertEqual(info.installedAt, Date(timeIntervalSince1970: 1787000000))
+    }
+
+    /// ยังไม่เคยติดตั้งผ่าน setup.sh รุ่นใหม่ = ไม่รู้ว่าโค้ดอยู่ไหน ต้องไม่พัง
+    func testMissingInstallFileIsNil() {
+        XCTAssertNil(InstallInfo.load(from: root.appendingPathComponent("nope.json").path))
+    }
+
+    // MARK: - หาว่าโค้ดถูกแก้ล่าสุดเมื่อไหร่
+
+    func testNewestSourceChangeLooksAtEveryPlaceCodeLives() {
+        let old = Date(timeIntervalSince1970: 1_787_000_000)
+        let new = old.addingTimeInterval(3600)
+        write("App/AIUsageApp.swift", modified: old)
+        write("Shared/Preferences.swift", modified: old)
+        write("engine/aiusage/liveusage.py", modified: new)
+        write("ai-usage.60s.py", modified: old)
+        XCTAssertEqual(newestSourceChange(repo: root.path), new,
+                       "แก้ที่ engine ก็คือโค้ดใหม่ ไม่ใช่แค่ฝั่ง Swift")
+    }
+
+    /// __pycache__ เปลี่ยนทุกครั้งที่รันเทสต์ — นับด้วยจะขึ้น "มีอัปเดต" ทั้งที่ไม่มีใครแก้อะไร
+    func testGeneratedFilesDoNotCountAsChanges() {
+        let old = Date(timeIntervalSince1970: 1_787_000_000)
+        write("App/AIUsageApp.swift", modified: old)
+        write("engine/__pycache__/liveusage.cpython-313.pyc",
+              modified: old.addingTimeInterval(9999))
+        write("engine/aiusage/.DS_Store", modified: old.addingTimeInterval(9999))
+        XCTAssertEqual(newestSourceChange(repo: root.path), old)
+    }
+
+    func testMovedRepoHasNoSourceAtAll() {
+        XCTAssertNil(newestSourceChange(repo: root.appendingPathComponent("gone").path))
+    }
+
+    // MARK: - สรุปสถานะให้เมนู
+
+    private func info(installedAt: Date) -> InstallInfo {
+        InstallInfo(repo: "/tmp/repo", installedAt: installedAt, version: "c4f528c", build: 47)
+    }
+
+    private let installed = Date(timeIntervalSince1970: 1_787_000_000)
+
+    func testSourceOlderThanTheInstalledAppIsUpToDate() {
+        let state = updateState(info(installedAt: installed),
+                                sourceChangedAt: installed.addingTimeInterval(-60),
+                                toolsPresent: true)
+        XCTAssertEqual(state, .upToDate(version: "c4f528c", build: 47))
+    }
+
+    /// เคสจริงของ repo นี้: งานค้างยังไม่ commit แต่ไฟล์ใหม่กว่าตัวที่ติดตั้งแล้ว
+    func testSourceNewerThanTheInstalledAppIsAnUpdate() {
+        let changed = installed.addingTimeInterval(7200)
+        XCTAssertEqual(updateState(info(installedAt: installed),
+                                   sourceChangedAt: changed, toolsPresent: true),
+                       .available(since: changed))
+    }
+
+    func testWithoutInstallInfoWeDoNotKnowWhereTheCodeIs() {
+        guard case .unavailable = updateState(nil, sourceChangedAt: Date(), toolsPresent: true)
+        else { return XCTFail("ไม่มี install.json ต้องบอกเหตุผล ไม่ใช่บอกว่าล่าสุดแล้ว") }
+    }
+
+    func testMovedRepoReportsWhyInsteadOfPretendingItIsCurrent() {
+        guard case .unavailable = updateState(info(installedAt: installed),
+                                              sourceChangedAt: nil, toolsPresent: true)
+        else { return XCTFail("repo หายต้องบอกเหตุผล") }
+    }
+
+    /// ไม่มีเครื่องมือ build = กดแล้วจะเงียบ — ต้องบอกก่อนกด แต่บอกเฉพาะตอนมีของให้ติดตั้ง
+    func testMissingBuildToolsOnlyMattersWhenThereIsAnUpdate() {
+        guard case .unavailable = updateState(info(installedAt: installed),
+                                              sourceChangedAt: installed.addingTimeInterval(60),
+                                              toolsPresent: false)
+        else { return XCTFail("มีอัปเดตแต่ build ไม่ได้ ต้องบอกเหตุผล") }
+
+        XCTAssertEqual(updateState(info(installedAt: installed),
+                                   sourceChangedAt: installed.addingTimeInterval(-60),
+                                   toolsPresent: false),
+                       .upToDate(version: "c4f528c", build: 47),
+                       "ไม่มีอะไรให้ติดตั้ง ก็ไม่ต้องบ่นเรื่องเครื่องมือ")
+    }
+
+    func testBuildToolsNeedOneCandidateFromEachGroup() {
+        let present = write("bin/xcodegen", modified: Date()).path
+        try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: present)
+        XCTAssertTrue(buildToolsPresent([[present, "/nope/xcodegen"]]))
+        XCTAssertFalse(buildToolsPresent([[present], ["/nope/xcodebuild"]]))
+    }
+
+    // MARK: - ข้อความในเมนู
+
+    func testMenuSaysWhatWillHappen() {
+        let now = Date(timeIntervalSince1970: 1_787_010_000)
+        XCTAssertEqual(updateMenuTitle(.upToDate(version: "c4f528c", build: 47), now: now),
+                       "ล่าสุดแล้ว (c4f528c · 47)")
+        XCTAssertEqual(updateMenuTitle(.available(since: now.addingTimeInterval(-7200)), now: now),
+                       "ติดตั้งอัปเดต — โค้ดแก้เมื่อ 2h ที่แล้ว")
+        XCTAssertEqual(updateMenuTitle(.unavailable("หา repo ไม่เจอ"), now: now),
+                       "หา repo ไม่เจอ")
+    }
+
+    func testOnlyAnAvailableUpdateIsClickable() {
+        XCTAssertTrue(UpdateState.available(since: Date()).isActionable)
+        XCTAssertFalse(UpdateState.upToDate(version: "a", build: 1).isActionable)
+        XCTAssertFalse(UpdateState.unavailable("x").isActionable)
+    }
+}

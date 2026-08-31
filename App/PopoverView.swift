@@ -23,6 +23,9 @@ struct VisualEffectBackground: NSViewRepresentable {
 extension Notification.Name {
     static let aiUsageRefreshRequested = Notification.Name("AIUsage.refreshRequested")
     static let aiUsageSettingsChanged = Notification.Name("AIUsage.settingsChanged")
+    /// หน้าตั้งค่าขอให้ติดตั้งโค้ดใหม่ — งานจริงอยู่ที่ AppDelegate เพราะต้องถามยืนยัน
+    /// และต้องอยู่รอดหลัง popover ปิดไปแล้ว
+    static let aiUsageInstallUpdate = Notification.Name("AIUsage.installUpdate")
 }
 
 struct PopoverView: View {
@@ -519,15 +522,17 @@ struct WindowRow {
 
 /// สองแถวหลัก (5h, 7d) + gauge เฉพาะโมเดลที่ Anthropic แถมมา (เช่น weekly ของ Fable)
 func windowRows(_ item: UsageItem) -> [WindowRow] {
-    // เวลารีเซ็ตเกาะแถวที่มีตัวเลขจริง — ถ้า 5h ไม่มีข้อมูล (เช่น Qwen Cloud
-    // ที่ weekly เต็ม) เวลารีเซ็ตของ weekly ต้องไปโชว์ที่แถว 7d ไม่ใช่หายไปเฉยๆ
+    // resetAt คือเวลาของแถว 5h — ถ้า 5h ไม่มีข้อมูล (เช่น Qwen Cloud ที่ weekly เต็ม)
+    // เวลานั้นเป็นของ weekly จริงๆ ต้องไปโชว์ที่แถว 7d ไม่ใช่หายไปเฉยๆ
     let resetOnWeek = item.pct == nil && item.weekPct != nil
     return [WindowRow(label: "5h", pct: item.pct,
                sure: certainty(confidence: item.confidence),
                resetAt: resetOnWeek ? nil : item.resetAt),
      WindowRow(label: "7d", pct: item.weekPct,
                sure: certainty(confidence: item.weekConfidence ?? item.confidence),
-               resetAt: resetOnWeek ? item.resetAt : nil)]
+               // ถังที่บอกเวลารีเซ็ตของสัปดาห์มาด้วย (Codex, Claude Code) ใช้ของตัวเอง
+               // ที่เหลือค่อยตกกลับไปใช้ช่องเดียวตามเดิม
+               resetAt: item.weekResetAt ?? (resetOnWeek ? item.resetAt : nil))]
     + item.modelWindows.map { mw in
         WindowRow(label: mw.label, pct: mw.pct,
                   sure: certainty(confidence: mw.confidence),

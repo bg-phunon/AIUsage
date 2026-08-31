@@ -7,6 +7,41 @@ struct Price: Codable, Equatable {
     var outputPerMillion: Double
 }
 
+/// แถบเมนูยอมเสียอะไรเมื่อพื้นที่ไม่พอ
+///
+/// จอมีรอยบากเหลือที่ให้ status item ของทุกแอปรวมกันแค่ 772 pt (วัดจาก
+/// `NSScreen.auxiliaryTopRightArea` ของ MacBook 16") ของเรากิน 295.6 pt = 38%
+/// เกินเมื่อไหร่ macOS ซ่อนตัวที่อยู่ซ้ายสุดไว้ใต้รอยบาก — ของเราหายก่อนเพราะกว้างสุด
+///
+/// วัดด้วยเมตริกฟอนต์จริงแล้วมีสามอย่างเท่านั้นที่ลดความกว้างได้: ตัดเครื่องหมาย %
+/// (−54 pt) · บีบช่องไฟ (−20 pt) · โชว์ถังน้อยลง (−99 pt) ส่วน "ตัดป้ายบัญชี" กับ
+/// "ยุบเหลือบรรทัดเดียว" กลับ *กว้างขึ้น* 19 pt เพราะป้ายอยู่ใต้โลโก้อยู่แล้วไม่กิน
+/// แนวนอน และบรรทัดเดียวใช้ฟอนต์ 11.5 แทน 9.5 — จึงไม่มีอยู่ในทางเลือกไหนเลย
+enum BarDensity: String, CaseIterable, Identifiable {
+    case full, snug, minimal
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .full: return "เต็ม"
+        case .snug: return "กระชับ"
+        case .minimal: return "น้อยที่สุด"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .full: return "ทุกถัง พร้อมเครื่องหมาย % · 296 pt"
+        case .snug: return "ทุกถัง ตัด % และบีบช่องไฟ · 221 pt"
+        case .minimal: return "กระชับ + เหลือ 3 ถังแรก · 151 pt"
+        }
+    }
+
+    /// จำนวนถังสูงสุดบนแถบ — nil คือไม่จำกัด
+    var bucketLimit: Int? { self == .minimal ? 3 : nil }
+}
+
 /// ตัวเลือกของผู้ใช้ ไม่ปนกับข้อมูลใน snapshot
 ///
 /// snapshot คือความจริงที่วัดได้ · ที่นี่คือความชอบส่วนตัว
@@ -21,6 +56,7 @@ final class Preferences: ObservableObject {
         static let tagBelowLogo = "tagBelowLogo"
         static let launchAtLogin = "launchAtLogin"
         static let order = "bucketOrder"
+        static let barDensity = "barDensity"
     }
 
     private let defaults: UserDefaults
@@ -35,6 +71,9 @@ final class Preferences: ObservableObject {
     @Published private(set) var launchAtLogin: Bool
     /// ลำดับถังที่ผู้ใช้จัดเอง — คุมทั้ง popover และแถบเมนู ว่าง = ตามเอนจิน
     @Published private(set) var order: [String]
+    /// แถบเมนูกะทัดรัดแค่ไหน — ไม่ตรวจจอให้เอง เพราะจอนอกกับจอในเครื่องคนละเรื่อง
+    /// และการสลับเองตอนต่อจอชัดเจนกว่าการเดาแล้วเดาผิด
+    @Published private(set) var barDensity: BarDensity
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -46,6 +85,8 @@ final class Preferences: ObservableObject {
         launchAtLogin = defaults.object(forKey: Key.launchAtLogin) == nil
             ? true : defaults.bool(forKey: Key.launchAtLogin)
         order = (defaults.array(forKey: Key.order) as? [String]) ?? []
+        // ค่าที่อ่านไม่ออก (ของเวอร์ชันหน้า/ไฟล์เสีย) ตกกลับเป็นเต็ม ไม่ใช่พัง
+        barDensity = BarDensity(rawValue: defaults.string(forKey: Key.barDensity) ?? "") ?? .full
     }
 
     var maxPins: Int { Self.maxPins }
@@ -86,6 +127,11 @@ final class Preferences: ObservableObject {
     func setLaunchAtLogin(_ enabled: Bool) {
         launchAtLogin = enabled
         defaults.set(enabled, forKey: Key.launchAtLogin)
+    }
+
+    func setBarDensity(_ density: BarDensity) {
+        barDensity = density
+        defaults.set(density.rawValue, forKey: Key.barDensity)
     }
 
     func setOrder(_ ids: [String]) {

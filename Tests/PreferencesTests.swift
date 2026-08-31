@@ -173,4 +173,19 @@ final class PreferencesTests: XCTestCase {
         XCTAssertFalse(prefs.isVisible("GLM/default"), "รอบที่มี snapshot แล้วต้องย้ายตามปกติ")
         XCTAssertNil(defaults.array(forKey: "visibleMenuBarProviders"))
     }
+
+    // MARK: - ความกะทัดรัดของแถบเมนู
+
+    /// ค่าเริ่มต้นคือเต็ม — ผู้ใช้ที่ไม่เคยตั้งต้องไม่โดนย่อให้เอง
+    func testBarDensityDefaultsToFullAndPersists() {
+        XCTAssertEqual(Preferences(defaults: defaults).barDensity, .full)
+        Preferences(defaults: defaults).setBarDensity(.minimal)
+        XCTAssertEqual(Preferences(defaults: defaults).barDensity, .minimal)
+    }
+
+    /// ค่าที่อ่านไม่ออก (ของเวอร์ชันหน้า หรือไฟล์เสีย) ต้องตกกลับเป็นเต็ม ไม่ใช่พัง
+    func testUnknownBarDensityFallsBackToFull() {
+        defaults.set("nonsense", forKey: "barDensity")
+        XCTAssertEqual(Preferences(defaults: defaults).barDensity, .full)
+    }
 }

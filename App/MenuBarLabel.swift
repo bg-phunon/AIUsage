@@ -92,6 +92,47 @@ func menuBarSegments(snapshot: UsageSnapshot, now: Date, wokeRecently: Bool,
     return filtered.isEmpty ? arranged : filtered
 }
 
+extension BarDensity {
+    /// ช่องไฟระหว่างถัง — 4 pt ที่ต่างกันคือ 20 pt เมื่อมี 6 ถัง
+    var segmentGap: CGFloat { self == .full ? 10 : 6 }
+}
+
+/// บีบแถบให้พอดีที่ตามระดับที่ผู้ใช้เลือก
+///
+/// คืนถังที่เหลือ พร้อมจำนวนที่ถูกตัดออก — ที่ถูกตัดต้องนับได้เสมอ ไม่ใช่หายเงียบ
+/// (ป้าย "+3" บนแถบคือสัญญาว่ายังมีของอยู่ ให้ไปเปิด popover ดู)
+///
+/// ลำดับที่เข้ามาคือลำดับที่ผู้ใช้จัดและปักไว้แล้ว ตัวที่รอดจึงเป็นตัวที่เขาเลือกเอง
+/// ไม่ใช่ตัวที่เราคิดว่าสำคัญ
+func applyDensity(_ segments: [MenuBarSegment],
+                  _ density: BarDensity) -> (segments: [MenuBarSegment], overflow: Int) {
+    guard density != .full else { return (segments, 0) }
+    let kept = density.bucketLimit.map { Array(segments.prefix($0)) } ?? segments
+    return (kept.map(withoutPercentSign), segments.count - kept.count)
+}
+
+/// "23%" → "23" · ขีดคือ "มีบัญชีแต่ยังไม่มีเลข" ไม่ใช่ตัวเลข ห้ามแตะ
+private func withoutPercentSign(_ segment: MenuBarSegment) -> MenuBarSegment {
+    func trimmed(_ text: String) -> String {
+        text.hasSuffix("%") ? String(text.dropLast()) : text
+    }
+    return MenuBarSegment(id: segment.id, group: segment.group,
+                          assetName: segment.assetName, tag: segment.tag,
+                          top: trimmed(segment.top), bottom: segment.bottom.map(trimmed),
+                          color: segment.color)
+}
+
+/// ถังวิกฤตที่หลุดจากแถบเพราะโหมดกะทัดรัด
+///
+/// ป้าย "+3" บอกแค่ว่ายังมีของ ไม่ได้บอกว่าของนั้นกำลังจะเต็ม ถ้าไม่มีอะไรเตือน
+/// ความกะทัดรัดก็กลายเป็นการปิดตาผู้ใช้ — จุดแดงดวงเดียวกับที่ใช้กับถังที่ไม่ได้ปัก
+func hasCritical(snapshot: UsageSnapshot, ids: [String]) -> Bool {
+    let dropped = Set(ids)
+    return snapshot.items.contains {
+        $0.error == nil && $0.severity == "critical" && dropped.contains($0.id)
+    }
+}
+
 /// มีถังที่ไม่ได้ปักกำลังวิกฤตอยู่ไหม
 ///
 /// ถ้าผู้ใช้ปัก Codex ไว้อย่างเดียวแล้ว Claude weekly พุ่งไป 96%

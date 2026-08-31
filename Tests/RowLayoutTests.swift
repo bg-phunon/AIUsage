@@ -101,4 +101,38 @@ final class RowLayoutTests: XCTestCase {
                                confidence: "valid", weekConfidence: "valid")
         XCTAssertEqual(windowRows(claude)[0].resetAt, reset, "มี 5h อยู่แล้ว เกาะที่เดิม")
     }
+
+    /// Codex/Claude ส่งเวลารีเซ็ตมาสองอัน — แถว 7d ต้องใช้ของตัวเอง ไม่ใช่ว่างเปล่า
+    func testWeekRowUsesItsOwnResetTime() {
+        let fiveHour = Date().addingTimeInterval(3600)
+        let sevenDay = Date().addingTimeInterval(6 * 86400)
+        let codex = UsageItem(group: "Codex", label: "Codex", window: "5 ชม.",
+                              pct: 0, resetAt: fiveHour, weekPct: 14,
+                              weekResetAt: sevenDay, pctSource: "official",
+                              confidence: "valid", weekConfidence: "valid")
+        let rows = windowRows(codex)
+        XCTAssertEqual(rows[0].resetAt, fiveHour)
+        XCTAssertEqual(rows[1].resetAt, sevenDay, "แถว 7d ไม่มีวันรีเซ็ตให้ดู")
+    }
+
+    /// ถังที่มีเวลารีเซ็ตอันเดียวและเป็นของสัปดาห์ (Qwen Cloud) ต้องไม่เสียพฤติกรรมเดิม
+    func testWeekRowStillFallsBackWhenThereIsOnlyOneResetTime() {
+        let reset = Date().addingTimeInterval(3600)
+        let qwen = UsageItem(group: "Qwen Cloud", label: "default", window: "5 ชม.",
+                             pct: nil, resetAt: reset, weekPct: 100,
+                             weekResetAt: nil, pctSource: "official", weekConfidence: "valid")
+        XCTAssertEqual(windowRows(qwen)[1].resetAt, reset)
+    }
+
+    /// snapshot เก่าที่ไม่มีฟิลด์ weekResetAt ต้องถอดรหัสได้เหมือนเดิม
+    func testDecodingWithoutWeekResetAtStillWorks() {
+        let json = """
+        {"generated": "2026-08-12T00:00:00Z", "items": [
+          {"group": "Codex", "label": "Codex", "window": "5h",
+           "tokens": 1, "calls": 0, "weekTokens": 1}]}
+        """.data(using: .utf8)!
+        let snap = UsageSnapshot.decode(from: json)
+        XCTAssertNotNil(snap)
+        XCTAssertNil(snap?.items.first?.weekResetAt)
+    }
 }

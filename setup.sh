@@ -61,6 +61,20 @@ quit_app
 rm -rf "$INSTALLED"
 cp -R "$APP" /Applications/
 
+# แอปใน /Applications ไม่รู้ว่าโค้ดอยู่โฟลเดอร์ไหน — ทิ้งที่อยู่กับเวลาไว้ให้เมนู
+# "ติดตั้งอัปเดต" เทียบว่าไฟล์ในโปรเจกต์ใหม่กว่าตัวที่ติดตั้งแล้วหรือยัง
+python3 - "$ROOT" "$VERSION" "$BUILD_NUM" <<'PYEOF'
+import json, os, sys, time
+root, version, build = sys.argv[1], sys.argv[2], sys.argv[3]
+path = os.path.expanduser("~/.config/ai-usage/install.json")
+os.makedirs(os.path.dirname(path), exist_ok=True)
+tmp = path + ".tmp"
+with open(tmp, "w", encoding="utf-8") as fh:
+    json.dump({"repo": root, "installedAt": int(time.time()),
+               "version": version, "build": int(build)}, fh)
+os.replace(tmp, path)
+PYEOF
+
 # พาขอสิทธิ์ Keychain ต่อบัญชี — engine อ่าน token ด้วย /usr/bin/security
 # ถ้าไม่เคยกด "Always Allow" มันจะเด้งถามทุก 60 วิแล้วโดน timeout ฆ่าเงียบๆ
 # ทำตรงนี้ทีเดียวให้จบ: เรียกแบบ foreground ค้างรอจนผู้ใช้ตอบครบทุกบัญชี

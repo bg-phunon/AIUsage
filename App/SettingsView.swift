@@ -28,6 +28,7 @@ struct SettingsView: View {
     @ObservedObject var model: UsageModel
     @ObservedObject var prefs: Preferences
     @State private var editing: String?
+    @State private var updateState: UpdateState?
     @State private var inputText = ""
     @State private var outputText = ""
 
@@ -47,22 +48,73 @@ struct SettingsView: View {
             .padding(.horizontal, 14).padding(.vertical, 10)
             Divider()
 
+            // ทั้งหน้าต้องเลื่อนเป็นก้อนเดียว — เคยให้เฉพาะรายการถังเลื่อนได้ พอส่วนล่าง
+            // งอกขึ้นสองบล็อก ช่องรายการเหลือแถวเดียวครึ่งจนอ่านไม่ออก ส่วนที่ตรึงไว้
+            // มีได้แค่หัวตารางบรรทัดเดียวเท่านั้น
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(configurableItems) { item in
                         row(item)
                         Divider()
                     }
+                    versionRow
+                    Divider()
+                    barDensityPicker
+                    Divider()
+                    tagPositionToggle
+                    Divider()
+                    designStylePicker
                 }
             }
-            Divider()
-            tagPositionToggle
-            Divider()
-            designStylePicker
         }
         // ห้ามตั้งขนาดตายตัว — เคยเป็น 460x620 จากยุคที่เปิดเป็น sheet แยก
         // พอฝังใน popover กว้าง 380 ขอบขวาโดนตัด ปุ่ม "แก้ราคา" กดไม่ได้เลย
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// เวอร์ชันที่ติดตั้ง + ทางลัดติดตั้งโค้ดใหม่
+    ///
+    /// อ่านสถานะตอนหน้านี้ปรากฏครั้งเดียว ไม่ใช่ทุกครั้งที่ body วาดใหม่ — body
+    /// วาดใหม่ทุกครั้งที่กดสวิตช์ไหนก็ได้ในหน้านี้ ไม่มีเหตุผลจะไปสแกนไฟล์ซ้ำ
+    @ViewBuilder private var versionRow: some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text("เวอร์ชัน").font(.system(size: 12, weight: .semibold))
+                Text(updateState.map { updateMenuTitle($0, now: Date()) } ?? "กำลังตรวจ…")
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if updateState?.isActionable == true {
+                Button("ติดตั้ง") {
+                    NotificationCenter.default.post(name: .aiUsageInstallUpdate, object: nil)
+                }
+                .font(.system(size: 11))
+            }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .onAppear { updateState = currentUpdateState() }
+    }
+
+    /// จอมีรอยบากเหลือที่ให้ status item ทุกแอปรวมกันแค่ 772 pt — ของเราเต็มที่กิน 296
+    /// เกินเมื่อไหร่ macOS ซ่อนของเราไว้ใต้รอยบาก ตัวเลือกนี้คือการเลือกว่าจะยอมเสียอะไร
+    private var barDensityPicker: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text("ความกะทัดรัดของแถบเมนู").font(.system(size: 12, weight: .semibold))
+                Text("จอมีรอยบากมีที่จำกัด — สลับเองตอนต่อจอนอก")
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+            }
+            Picker("", selection: Binding(get: { prefs.barDensity },
+                                          set: { prefs.setBarDensity($0) })) {
+                ForEach(BarDensity.allCases) { density in
+                    Text(density.title).tag(density)
+                }
+            }
+            .pickerStyle(.segmented).labelsHidden()
+            Text(prefs.barDensity.subtitle)
+                .font(.system(size: 10)).foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
     }
 
     /// ป้ายบัญชี (de/mo/wo) บนแถบเมนู — ใต้โลโก้ประหยัดที่ · ข้างโลโก้อ่านง่ายกว่า

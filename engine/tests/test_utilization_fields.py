@@ -65,6 +65,20 @@ class UtilizationFieldsTest(unittest.TestCase):
         self.assertEqual(fields["activeLimit"], "session")
         self.assertEqual(fields["severity"], "normal")
 
+    def test_weekly_window_reports_its_own_reset_time(self):
+        """7d มีเวลารีเซ็ตของตัวเอง — ไม่ใช่ยืมของ session ที่หมุนทุก 5 ชม."""
+        fields = engine.utilization_fields(
+            util_of(win("session", 12, resets_in_hours=3),
+                    win("weekly_all", 5, resets_in_hours=96)),
+            last_activity=None, now=NOW)
+        self.assertEqual(fields["resetAt"], NOW + timedelta(hours=3))
+        self.assertEqual(fields["weekResetAt"], NOW + timedelta(hours=96))
+
+    def test_no_weekly_window_means_no_week_reset(self):
+        fields = engine.utilization_fields(
+            util_of(win("session", 12)), last_activity=None, now=NOW)
+        self.assertIsNone(fields["weekResetAt"])
+
     def test_expired_scoped_window_without_activity_reads_zero(self):
         """หน้าต่างที่รีเซ็ตไปแล้วและไม่มีการใช้งานหลังจากนั้น = ศูนย์แน่นอน"""
         expired = Window(kind="weekly_scoped", percent=80.0,

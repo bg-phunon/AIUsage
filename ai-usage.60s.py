@@ -468,7 +468,14 @@ def claude_account_stats(acc):
 
 # ── อ่าน rollout ของ Codex ──────────────────────────────────────────────────
 def codex_stats(codex_dir):
-    """Codex เขียน rate_limits ที่เป็นเปอร์เซ็นต์จริงลง rollout log — ใช้ค่านั้นเลย"""
+    """Codex เขียน rate_limits ที่เป็นเปอร์เซ็นต์จริงลง rollout log — ใช้ค่านั้นเลย
+
+    เก็บ "หน้าต่างล่าสุดที่มีค่าจริง" แยกรายช่อง ไม่ใช่ก้อน rate_limits ใหม่สุด
+    ทั้งก้อน — บาง record มี primary/secondary เป็น null ทั้งคู่ (เช่นก้อนของ
+    limit_id "premium" ที่บอกแค่เครดิต) ถ้าเอาก้อนใหม่สุดแบบไม่ดูว่ามีหน้าต่างไหม
+    ก้อนว่างจะไปลบเลขที่รู้แล้วทิ้ง (เคสจริง 2026-08-21: weekly 100% ที่ยังไม่ถึง
+    เวลารีเซ็ตหายจากจอเพราะก้อนว่างมาทีหลัง 4 นาที)
+    """
     files = []
     for pat in ("sessions/**/*.jsonl", "*.jsonl"):
         files += glob.glob(os.path.join(codex_dir, pat), recursive=True)
@@ -477,8 +484,8 @@ def codex_stats(codex_dir):
     files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
 
     tokens = 0
-    limits = None
-    limits_ts = None
+    windows = {}       # ช่อง → {"win": หน้าต่างดิบ, "ts": เวลาของ record ที่ได้มา}
+    last_activity = None
     week_cut = now_utc() - timedelta(days=WEEK_DAYS)
 
     for path in files[:60]:
@@ -500,27 +507,107 @@ def codex_stats(codex_dir):
                 payload = rec.get("payload") or rec
                 info = payload.get("info") or {}
                 last = info.get("last_token_usage") or {}
+                used = int(last.get("total_tokens") or 0)
                 if ts and ts >= week_cut:
-                    tokens += int(last.get("total_tokens") or 0)
+                    tokens += used
+                    if used and (last_activity is None or ts > last_activity):
+                        last_activity = ts
                 rl = payload.get("rate_limits") or info.get("rate_limits")
-                if rl and (limits_ts is None or (ts and ts > limits_ts)):
-                    limits, limits_ts = rl, ts
-    return {"tokens": tokens, "limits": limits, "limits_ts": limits_ts}
+                if not isinstance(rl, dict):
+                    continue
+                for slot in ("primary", "secondary"):
+                    win = rl.get(slot)
+                    if not isinstance(win, dict):
+                        continue  # ก้อนที่ไม่มีหน้าต่าง ไม่ใช่คำประกาศว่า "ไม่มีลิมิตแล้ว"
+                    cur = windows.get(slot)
+                    if cur is None or (ts is not None
+                                       and (cur["ts"] is None or ts > cur["ts"])):
+                        windows[slot] = {"win": win, "ts": ts}
+    return {"tokens": tokens, "windows": windows, "lastActivity": last_activity}
+
+
+SHORT_WINDOW_MINUTES = 400  # เกินนี้ถือเป็นหน้าต่างยาว (สัปดาห์) ไม่ใช่บล็อก 5 ชม.
 
 
 def window_from_limit(win, base_ts):
+    """หน้าต่างหนึ่งอันจาก rate_limits ของ Codex
+
+    เวลารีเซ็ตมาได้สามแบบ: resets_at (epoch สัมบูรณ์ — รูปที่ Codex ใช้ตอนนี้),
+    resets_in_seconds (รูปเก่า นับจากเวลาของ record) หรือไม่บอกเลย ถ้าไม่บอก
+    ก็อนุมานขอบบนจากความยาวหน้าต่าง — หน้าต่างยาว W นาทีที่เห็นตอน ts วิ่งต่อ
+    ได้ไม่เกิน ts+W ทุกหน้าต่างจึงมีวันหมดอายุ ไม่มีเลขไหนค้างจอได้ตลอดกาล
+    """
     if not isinstance(win, dict):
         return None
     pct = win.get("used_percent", win.get("usedPercent"))
     if pct is None:
         return None
-    resets = win.get("resets_in_seconds", win.get("resetsInSeconds"))
-    end = None
-    if resets is not None and base_ts:
-        end = base_ts + timedelta(seconds=float(resets))
     mins = win.get("window_minutes", win.get("windowMinutes"))
-    label = "5 ชม." if mins and mins <= 400 else ("สัปดาห์" if mins else "หน้าต่าง")
-    return {"pct": float(pct), "end": end, "label": label}
+    resets_at = win.get("resets_at", win.get("resetsAt"))
+    resets_in = win.get("resets_in_seconds", win.get("resetsInSeconds"))
+    end = None
+    if isinstance(resets_at, (int, float)):
+        end = datetime.fromtimestamp(float(resets_at), timezone.utc)
+    elif resets_in is not None and base_ts:
+        end = base_ts + timedelta(seconds=float(resets_in))
+    elif mins and base_ts:
+        end = base_ts + timedelta(minutes=float(mins))
+    label = ("5 ชม." if mins and mins <= SHORT_WINDOW_MINUTES
+             else ("สัปดาห์" if mins else "หน้าต่าง"))
+    return {"pct": float(pct), "end": end, "label": label, "minutes": mins}
+
+
+def codex_fields(cs, now):
+    """แปลงหน้าต่างของ Codex เป็นฟิลด์ของ item — แยกจาก collect() ให้เทสต์ได้ตรงๆ
+
+    จัดแถวตามความยาวหน้าต่างจริง ไม่ใช่ตำแหน่ง primary/secondary — Codex ย้าย
+    weekly มาไว้ที่ primary แล้ว (secondary กลายเป็น null) ถ้ายังยึดตำแหน่ง
+    เลขสัปดาห์จะไปโผล่ในแถว "5h" ของ popover ซึ่งเป็นคนละเรื่องกัน
+    """
+    out = {"pct": None, "confidence": None, "weekPct": None, "weekConfidence": None,
+           "resetAt": None, "weekResetAt": None, "window": "5 ชม."}
+    picked = {}
+    for slot in ("primary", "secondary"):
+        entry = (cs.get("windows") or {}).get(slot)
+        if not isinstance(entry, dict):
+            continue
+        win = window_from_limit(entry.get("win"), entry.get("ts"))
+        if win is None:
+            continue
+        key = "week" if (win["minutes"] or 0) > SHORT_WINDOW_MINUTES else "short"
+        cur, ts = picked.get(key), entry.get("ts")
+        if cur is None or (ts is not None and (cur[0] is None or ts > cur[0])):
+            picked[key] = (ts, win)
+
+    def resolved(w):
+        """เลขที่ยังยืนยันได้ — หน้าต่างหมุนไปแล้วห้ามโชว์ของเก่าเป็นเลขสด"""
+        if w["end"] is None or now < w["end"]:
+            return w["pct"], "valid"
+        last = cs.get("lastActivity")
+        if last is None or last < w["end"]:
+            return 0.0, "zero"   # หน้าต่างใหม่ยังไม่มีใครแตะ = ศูนย์จริง ไม่ใช่ "ไม่รู้"
+        return None, "unsure"    # ใช้ต่อหลังรีเซ็ตแต่ไม่มีเลขใหม่ — ตอบไม่ได้ ห้ามเดา
+
+    short = picked.get("short")
+    week = picked.get("week")
+    if short:
+        out["pct"], out["confidence"] = resolved(short[1])
+        out["window"] = short[1]["label"]
+    if week:
+        out["weekPct"], out["weekConfidence"] = resolved(week[1])
+        # แถว 7d มีเวลารีเซ็ตของตัวเอง — ช่อง resetAt ช่องเดียวถูกจองให้ 5h ที่มีเลข
+        # อยู่แล้ว เวลาของสัปดาห์จึงเคยหายไปทั้งที่ log บอกมาครบ (เคสจริง 2026-08-31)
+        out["weekResetAt"] = week[1]["end"]
+        if not short:
+            out["window"] = week[1]["label"]
+    # เวลารีเซ็ตเกาะแถวที่มีเลขจริง — UI ตัดสินจาก pct == nil ต้องเลือกให้ตรงกัน
+    if short and out["pct"] is not None:
+        out["resetAt"] = short[1]["end"]
+    elif week:
+        out["resetAt"] = week[1]["end"]
+    elif short:
+        out["resetAt"] = short[1]["end"]
+    return out
 
 
 # ── config เริ่มต้น ─────────────────────────────────────────────────────────
@@ -609,7 +696,8 @@ SNAPSHOT_PATH = os.path.join(HOME, "Library", "Application Support", "AIUsage", 
 CONTRACT_DEFAULTS = {
     "pctSource": None, "confidence": None, "dataFetchedAt": None,
     "severity": None, "activeLimit": None, "error": None, "local": False,
-    "weekConfidence": None, "costKnown": False, "costCurrency": None,
+    "weekConfidence": None, "weekResetAt": None,
+    "costKnown": False, "costCurrency": None,
     "costSource": None, "costEstimated": False, "costKind": None,
     "modelWindows": [],
 }
@@ -623,7 +711,7 @@ def utilization_fields(util, last_activity, now):
     """
     out = {"pct": None, "confidence": None, "weekPct": None, "weekConfidence": None,
            "pctSource": None, "severity": None, "activeLimit": None,
-           "resetAt": None, "modelWindows": []}
+           "resetAt": None, "weekResetAt": None, "modelWindows": []}
     session = next((w for w in util.windows if w.kind == "session"), None)
     weeklies = [w for w in util.windows if w.kind.startswith("weekly")]
     unscoped = [w for w in weeklies if not w.scope]
@@ -648,6 +736,8 @@ def utilization_fields(util, last_activity, now):
         out["resetAt"] = session.resets_at
     if weekly_all is not None:
         out["weekPct"], out["weekConfidence"] = resolved(weekly_all)
+        # session รีเซ็ตทุก 5 ชม. — แถว 7d ยืมเวลานั้นมาใช้ไม่ได้ ต้องมีของตัวเอง
+        out["weekResetAt"] = weekly_all.resets_at
     for w in weeklies:
         if not w.scope or w is weekly_all:
             continue
@@ -859,6 +949,7 @@ def collect():
         pct_source = confidence = fetched_at = severity = active_limit = None
         model_windows = []
         reset_at = block["end"] if block else None
+        week_reset_at = None
         if util:
             fetched_at = util.fetched_at.isoformat().replace("+00:00", "Z")
             uf = utilization_fields(util, st.get("lastActivity"), now)
@@ -867,6 +958,7 @@ def collect():
             pct_source = uf["pctSource"]
             severity, active_limit = uf["severity"], uf["activeLimit"]
             model_windows = uf["modelWindows"]
+            week_reset_at = uf["weekResetAt"]
             if uf["resetAt"] is not None:
                 reset_at = uf["resetAt"]
 
@@ -884,6 +976,8 @@ def collect():
             "pctSource": pct_source, "confidence": confidence, "dataFetchedAt": fetched_at,
             "severity": severity, "activeLimit": active_limit,
             "weekConfidence": week_confidence,
+            "weekResetAt": (week_reset_at.isoformat().replace("+00:00", "Z")
+                            if week_reset_at else None),
             "modelWindows": model_windows,
             "costKnown": bool(st.get("costKnown")),
             "costCurrency": "USD" if st.get("costKnown") else None,
@@ -908,22 +1002,28 @@ def collect():
             cs = None
         if not cs:
             continue
-        limits = cs.get("limits") or {}
-        prim = window_from_limit(limits.get("primary"), cs.get("limits_ts"))
-        sec = window_from_limit(limits.get("secondary"), cs.get("limits_ts"))
+        cf = codex_fields(cs, now)
         items.append(with_contract({
             "group": "Codex",
             "label": c.get("label", "Codex"),
-            "window": prim["label"] if prim else "5 ชม.",
-            "pct": round(prim["pct"], 1) if prim else None,
+            "window": cf["window"],
+            "pct": round(cf["pct"], 1) if cf["pct"] is not None else None,
             "tokens": cs["tokens"],
             "cost": None,
             "calls": 0,
-            "resetAt": prim["end"].isoformat().replace("+00:00", "Z") if prim and prim["end"] else None,
+            "resetAt": cf["resetAt"].isoformat().replace("+00:00", "Z") if cf["resetAt"] else None,
             "weekTokens": cs["tokens"],
             "weekCost": None,
-            "weekPct": round(sec["pct"], 1) if sec else None,
+            "weekPct": round(cf["weekPct"], 1) if cf["weekPct"] is not None else None,
             "profile": None,
+            # % ของ Codex มาจาก rate_limits ที่ OpenAI ส่งกลับมาเอง — เป็นทางการ
+            # เท่ากับของ Anthropic ความมั่นใจจึงต้องเดินตามอายุหน้าต่างเหมือนกัน
+            "pctSource": "official" if (cf["pct"] is not None
+                                        or cf["weekPct"] is not None) else None,
+            "confidence": cf["confidence"],
+            "weekConfidence": cf["weekConfidence"],
+            "weekResetAt": (cf["weekResetAt"].isoformat().replace("+00:00", "Z")
+                            if cf["weekResetAt"] else None),
         }))
 
     for m in cfg.get("manual", []):
@@ -1042,9 +1142,9 @@ def main():
         if not cs:
             continue
         detail, top = [], None
-        limits = cs.get("limits") or {}
-        for key in ("primary", "secondary"):
-            w = window_from_limit(limits.get(key), cs.get("limits_ts"))
+        for slot in ("primary", "secondary"):
+            entry = (cs.get("windows") or {}).get(slot) or {}
+            w = window_from_limit(entry.get("win"), entry.get("ts"))
             if not w:
                 continue
             top = w["pct"] if top is None else max(top, w["pct"])

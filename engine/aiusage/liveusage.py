@@ -37,6 +37,10 @@ OAUTH_BETA = "oauth-2025-04-20"
 BACKOFF_PATH = os.path.join(os.path.expanduser("~"), ".config", "ai-usage",
                             "oauth-backoff.json")
 BACKOFF_SECONDS = 900
+# token ต้องหมดอายุค้างไว้นานเท่านี้ก่อนเราจะเข้าไปต่ออายุเอง
+# Claude Code ที่ยังเปิดอยู่ต่ออายุของมันเองภายในไม่กี่นาที — ปล่อยให้เจ้าของบัญชี
+# ทำก่อน เราเก็บกวาดเฉพาะบัญชีที่ไม่มีใครดูแล ยิ่งเราหมุนน้อย โอกาสชนยิ่งน้อย
+REFRESH_GRACE_SECONDS = 900
 # ผลสดครั้งล่าสุดต่อบัญชี — เฉพาะตัวเลข % กับเวลา ไม่มีชิ้นส่วนของ token
 # ไว้กันเลขกะพริบหายตอน live พลาดหนึ่งรอบ (เน็ตสะดุด/token กำลังต่ออายุ)
 LIVE_CACHE_PATH = os.path.join(os.path.expanduser("~"), "Library",
@@ -93,6 +97,21 @@ def _write_credentials(service: str, account: str, blob: dict) -> bool:
     return proc is not None and proc.returncode == 0
 
 
+def _matches_on_disk(service: str, expected_refresh_token: str) -> Optional[bool]:
+    """อ่านกลับมาว่า refresh token บน Keychain ยังเป็นตัวที่เราเพิ่งเขียนอยู่ไหม
+
+    เราไม่ใช่คนเดียวที่เขียน item นี้ — ถ้ามีคนอื่นคั่นระหว่างเขียนกับอ่านกลับของเรา
+    แปลว่าเราเพิ่งเขียนทับของที่ใหม่กว่า คืน False ให้ผู้เรียกถอยก่อนที่จะหมุนต่อ
+    (อ่านกลับพลาด = คืน None แยกจาก "ไม่เหมือน" ไม่งั้นปนเป็น race ปลอม)
+    """
+    cur = _read_credentials(service)
+    if cur is None:
+        return None
+    oauth = cur.get("claudeAiOauth") or {}
+    cur_token = oauth.get("refreshToken")
+    return isinstance(cur_token, str) and cur_token == expected_refresh_token
+
+
 def merged_credentials(blob: dict, token_response: dict, now_ms: int) -> dict:
     """รวม response จาก endpoint ต่ออายุเข้า blob เดิม — field อื่นต้องรอดครบ"""
     oauth = dict((blob or {}).get("claudeAiOauth") or {})
@@ -129,7 +148,10 @@ def _mark_backoff(service: str, step: str) -> None:
         pass
 
 
-_READ_STAGE_STEPS = frozenset({"keychain-read", "no-access-token", "no-refresh-token"})
+# keychain-reread เป็นขั้นอ่านด้วย — อ่านสดพลาดชั่วคราว (เด้ง dialog สิทธิ์)
+# ต้อง self-heal ตอนอ่านผ่านรอบถัดไป ไม่งั้นกดปิดการรีเฟรชเงียบ 15 นาที
+_READ_STAGE_STEPS = frozenset({"keychain-read", "keychain-reread", "no-access-token",
+                               "no-refresh-token"})
 
 
 def _clear_backoff(service: str, steps=None) -> None:
@@ -181,10 +203,17 @@ def _refreshed_token(service: str, blob: dict) -> Optional[str]:
     Anthropic หมุน refresh token ทุกครั้ง (ตัวเก่าถูกยกเลิก) — จึงต้อง
     "ซ้อมเขียนค่าเดิมกลับ" ให้ผ่านก่อนค่อยรีเฟรชจริง ถ้าซ้อมไม่ผ่านให้เลิก
     ไม่งั้นได้ token ใหม่มาแต่เก็บไม่ได้ = บัญชีนั้นหลุดจาก Claude Code
+
+    เราไม่ใช่คนเดียวที่เขียน item นี้ — Claude Code ต่ออายุของตัวเองด้วย
+    blob ที่ผู้เรียกส่งมาจึงเก่าได้ตั้งแต่ยังไม่ทันใช้ ต้องอ่านสดอีกรอบให้
+    ชิดจังหวะหมุนที่สุด แล้วหมุนจากตัวที่อ่านได้เท่านั้น (เคสจริง 2026-08-17:
+    ซ้อมเขียน blob เก่าทับของที่ Claude Code เพิ่งหมุน = บัญชีหลุด ต้อง login ใหม่)
+    ทุกครั้งที่เขียนต้องอ่านกลับมาตรวจว่าเรายังถือ item อยู่ — เขียนแล้วโดนทับ =
+    มีคนเขียนแทรก อย่าหมุนต่อ (rehearsal-race) หรือทิ้ง breadcrumb ไว้ไล่
+    (publish-race) เราไม่มี CAS ผ่าน `security -U` วิธีนี้คือที่ดีที่สุดเท่าที่ CLI ให้ได้
     """
     oauth = (blob or {}).get("claudeAiOauth") or {}
-    refresh_token = oauth.get("refreshToken")
-    if not isinstance(refresh_token, str) or not refresh_token:
+    if not isinstance(oauth.get("refreshToken"), str) or not oauth.get("refreshToken"):
         _mark_backoff(service, "no-refresh-token")
         return None
     if not should_attempt_refresh(_read_backoff(), service, time.time()):
@@ -193,18 +222,50 @@ def _refreshed_token(service: str, blob: dict) -> Optional[str]:
     if account is None:
         _mark_backoff(service, "account-attribute")
         return None
-    if not _write_credentials(service, account, blob):
+    fresh = _read_credentials(service)
+    if fresh is None:
+        _mark_backoff(service, "keychain-reread")
+        return None
+    fresh_oauth = fresh.get("claudeAiOauth") or {}
+    refresh_token = fresh_oauth.get("refreshToken")
+    if not isinstance(refresh_token, str) or not refresh_token:
+        _mark_backoff(service, "no-refresh-token")
+        return None
+    expires_ms = fresh_oauth.get("expiresAt")
+    if isinstance(expires_ms, (int, float)) and expires_ms / 1000.0 > time.time():
+        # มีคนต่ออายุให้แล้วระหว่างที่เราคิดอยู่ — ใช้ของเขา ห้ามหมุนซ้ำ
+        # หมุนซ้ำ = ยกเลิก refresh token ที่ Claude Code เพิ่งเก็บไป
+        access = fresh_oauth.get("accessToken")
+        return access if isinstance(access, str) and access else None
+    if not _write_credentials(service, account, fresh):
         _mark_backoff(service, "write-rehearsal")
+        return None
+    match = _matches_on_disk(service, refresh_token)
+    if match is None:
+        _mark_backoff(service, "keychain-reread")
+        return None
+    if not match:
+        # ระหว่างอ่านกับซ้อมเขียนมีคนเขียนแทรก — เราเขียนทับของที่ใหม่กว่าแล้ว
+        # ยิ่งหมุนต่อ = ไปหมุนตัวที่เขาเพิ่งเก็บ → ขอถอยรอบนี้ ให้ของเขารอด
+        _mark_backoff(service, "rehearsal-race")
         return None
     resp = _oauth_refresh(refresh_token)
     if resp is None:
         _mark_backoff(service, "oauth-refresh")
         return None
-    merged = merged_credentials(blob, resp, int(time.time() * 1000))
-    _write_credentials(service, account, merged)
-    # เขียนรอบจริงพลาดทั้งที่ซ้อมผ่าน = โชคร้ายจริงๆ — token ใหม่ยังใช้ได้รอบนี้
-    # และการซ้อมทำให้เคสนี้แทบเป็นไปไม่ได้ ไม่ log อะไรเพราะห้ามมีร่องรอย token
-    _clear_backoff(service)
+    merged = merged_credentials(fresh, resp, int(time.time() * 1000))
+    rotated = (merged.get("claudeAiOauth") or {}).get("refreshToken")
+    if _write_credentials(service, account, merged):
+        if isinstance(rotated, str) and rotated and _matches_on_disk(service, rotated) is False:
+            # เขียนผ่านแต่โดนคนอื่นเขียนทับทันที — มีใครหมุนของตัวเองพร้อมกัน
+            # ตัวเลขรอบนี้คืนได้ (server ยังยอมรับ) แต่เก็บ breadcrumb ไว้ไล่
+            _mark_backoff(service, "publish-race")
+        else:
+            _clear_backoff(service)
+    else:
+        # หมุนแล้วเก็บไม่ได้ = บัญชีนี้หลุดจริง ต้องมีร่องรอยให้ไล่
+        # (ชื่อขั้นล้วนๆ ไม่มีชิ้นส่วนของ token ตามกติกาหัวไฟล์)
+        _mark_backoff(service, "write-after-refresh")
     return merged["claudeAiOauth"]["accessToken"]
 
 
@@ -228,10 +289,14 @@ def _read_token(config_dir: str) -> Optional[str]:
     # (ความล้มเหลวขั้น refresh เช่น oauth-refresh ยังต้องคง 15 นาทีของมันไว้)
     _clear_backoff(service, steps=_READ_STAGE_STEPS)
     expires_ms = oauth.get("expiresAt")
-    if isinstance(expires_ms, (int, float)) and expires_ms / 1000.0 <= time.time():
-        # บัญชีที่ไม่ได้เปิดใช้ Claude Code จะไม่มีใครต่ออายุให้ — เราต่อเอง
-        # (ผู้ใช้อนุมัติ 2026-08-12 พร้อมเงื่อนไขซ้อมเขียนก่อนรีเฟรช)
-        return _refreshed_token(service, blob)
+    if isinstance(expires_ms, (int, float)):
+        stale_for = time.time() - expires_ms / 1000.0
+        if stale_for >= REFRESH_GRACE_SECONDS:
+            # หมดอายุค้างมานาน = ไม่มีใครต่ออายุให้บัญชีนี้ — เราต่อเอง
+            # (ผู้ใช้อนุมัติ 2026-08-12 พร้อมเงื่อนไขซ้อมเขียนก่อนรีเฟรช)
+            return _refreshed_token(service, blob)
+        # เพิ่งหมดอายุ — ยังไม่ถึงคิวเรา คืน token เดิมไปลองใช้ก่อน
+        # expiresAt เผื่อขอบ 60 วิไว้ ของจริงจึงอาจยังไม่ตาย พลาดก็แค่ตกไปใช้แคช
     return token
 
 
