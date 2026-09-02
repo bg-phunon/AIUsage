@@ -124,6 +124,21 @@ final class RowLayoutTests: XCTestCase {
         XCTAssertEqual(windowRows(qwen)[1].resetAt, reset)
     }
 
+    /// บัญชีที่ยังไม่ได้ใช้อะไรในหน้าต่างนี้ — endpoint ตอบ 0% พร้อม resets_at: null
+    /// ศูนย์ที่รู้จริงต้องได้แถวของตัวเอง ไม่ใช่ถูกกรองทิ้งจนการ์ดว่าง
+    /// (เคสจริง 2026-09-02: บัญชี work เห็นเป็น "—" ค้าง อ่านเป็น "แอปไม่อัปเดต")
+    func testConfirmedZeroWithoutResetTimeStillGetsARow() {
+        let idle = UsageItem(group: "Claude Code", label: "work", window: "5 ชม.",
+                             pct: 0, resetAt: nil, weekPct: 12,
+                             weekResetAt: Date().addingTimeInterval(3 * 86400),
+                             pctSource: "official", confidence: "valid",
+                             weekConfidence: "valid")
+        let rows = displayableWindows(idle)
+        XCTAssertEqual(rows.map(\.label), ["5h", "7d"], "ศูนย์ที่ยืนยันได้หายไปทั้งแถว")
+        XCTAssertEqual(rows[0].pct, 0)
+        XCTAssertNil(rows[0].resetAt, "ไม่มีหน้าต่างเดินอยู่ ก็ไม่มีเวลาให้นับถอยหลัง")
+    }
+
     /// snapshot เก่าที่ไม่มีฟิลด์ weekResetAt ต้องถอดรหัสได้เหมือนเดิม
     func testDecodingWithoutWeekResetAtStillWorks() {
         let json = """

@@ -14,7 +14,8 @@ UNSURE = "unsure"
 class Window(NamedTuple):
     kind: str
     percent: float
-    resets_at: datetime
+    # None = หน้าต่างยังไม่เริ่มเดิน (percent 0) — ไม่ใช่ "ไม่รู้เวลา"
+    resets_at: Optional[datetime]
     severity: str
     scope: Optional[str]
     is_active: bool
@@ -47,12 +48,20 @@ def windows_from_limits(raw_limits) -> List[Window]:
         if not isinstance(lim, dict):
             continue
         resets = _parse_ts(lim.get("resets_at"))
-        if resets is None:
+        raw_percent = lim.get("percent")
+        percent = float(raw_percent or 0)
+        # ไม่มีเวลารีเซ็ตแล้วยังรับไว้ได้กรณีเดียว: บอกมาตรงๆ ว่าใช้ไป 0%
+        # แปลว่ายังไม่ได้ใช้อะไรเลย หน้าต่างจึงยังไม่เริ่มเดิน ศูนย์นั้นคือคำตอบที่รู้จริง
+        # — มีเลขแต่ไม่บอกวันหมดอายุ = ค้างจอตลอดกาล ส่วนไม่มีฟิลด์ percent เลย
+        # = แถวขยะที่ไม่ได้บอกอะไร ทั้งสองแบบต้องทิ้ง
+        if resets is None and not (isinstance(raw_percent, (int, float))
+                                   and not isinstance(raw_percent, bool)
+                                   and percent == 0):
             continue
         scope_obj = (lim.get("scope") or {}).get("model") or {}
         windows.append(Window(
             kind=str(lim.get("kind") or "unknown"),
-            percent=float(lim.get("percent") or 0),
+            percent=percent,
             resets_at=resets,
             severity=str(lim.get("severity") or "normal"),
             scope=scope_obj.get("display_name") or None,
@@ -84,6 +93,12 @@ def read_utilization(config_dir: str) -> Optional[Utilization]:
 def window_confidence(window: Window, fetched_at: datetime,
                       last_activity: Optional[datetime],
                       now: datetime) -> str:
+    if window.resets_at is None:
+        # ยังไม่มีหน้าต่างเดินอยู่ จึงไม่มีอะไรหมดอายุ — แต่ถ้าใช้งานหลังเวลา fetch
+        # ศูนย์ก้อนนั้นเป็นได้แค่ขอบล่าง เหมือนหน้าต่างปกติที่ข้อมูลตามไม่ทัน
+        if last_activity is not None and last_activity > fetched_at:
+            return LOWER_BOUND
+        return VALID
     if now >= window.resets_at:
         if last_activity is None or last_activity < window.resets_at:
             return CONFIRMED_ZERO

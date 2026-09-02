@@ -746,7 +746,8 @@ def utilization_fields(util, last_activity, now):
             continue  # gauge ที่ไม่รู้ค่าไม่ต้องงอกเป็นแถวจุดประ
         out["modelWindows"].append({
             "label": w.scope, "pct": round(pct, 1), "confidence": conf,
-            "resetAt": w.resets_at.isoformat().replace("+00:00", "Z"),
+            "resetAt": (w.resets_at.isoformat().replace("+00:00", "Z")
+                        if w.resets_at else None),
         })
     if out["pctSource"] is None and out["weekPct"] is not None:
         out["pctSource"] = "official"
