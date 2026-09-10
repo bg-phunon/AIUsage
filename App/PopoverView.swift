@@ -338,6 +338,7 @@ struct PopoverView: View {
                 if let note = rowFootnote(item, price: prefs.prices[item.id], now: now) {
                     Text(note).font(.system(size: 10)).foregroundStyle(.secondary)
                         .lineLimit(1)
+                        .help(limitResetsDetail(item, now: now) ?? "")
                 }
             }
         }
@@ -560,6 +561,14 @@ func creditsLabel(_ item: UsageItem) -> String? {
 func limitResetsLabel(_ item: UsageItem) -> String? {
     guard let count = item.limitResets else { return nil }
     return count == 0 ? "ไม่เหลือใบรีเซ็ต" : "รีเซ็ตสำรอง \(count) ใบ"
+}
+
+/// รายละเอียดว่าแต่ละใบหมดเมื่อไหร่ — บรรทัดเดียวในการ์ดใส่ไม่ไหว จึงอยู่ใน tooltip
+/// ใช้นับถอยหลังให้เป็นภาษาเดียวกับเวลารีเซ็ตที่เหลือทั้งแอป
+func limitResetsDetail(_ item: UsageItem, now: Date) -> String? {
+    guard !item.limitResetsExpiring.isEmpty else { return nil }
+    let lines = item.limitResetsExpiring.map { "• หมดอายุใน \(countdownText(to: $0, from: now))" }
+    return (["ใบรีเซ็ตที่ยังใช้ได้"] + lines).joined(separator: "\n")
 }
 
 func rowFootnote(_ item: UsageItem, price: Price?, now: Date) -> String? {

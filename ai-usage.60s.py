@@ -861,7 +861,7 @@ CONTRACT_DEFAULTS = {
     # ต่างจาก 0.0 ที่แปลว่า "มีแนวคิดนี้แต่หมดแล้ว"
     "credits": None, "creditsUnlimited": False,
     # ใบรีเซ็ตลิมิตที่ยังไม่หมดอายุ · None = ถังนี้ไม่มีแนวคิดนี้
-    "limitResets": None, "limitResetExpiresAt": None,
+    "limitResets": None, "limitResetExpiresAt": None, "limitResetsExpiring": [],
 }
 
 
@@ -1288,6 +1288,9 @@ def collect(live_override=None):
             "limitResets": len(codex_resets) if codex_resets is not None else None,
             "limitResetExpiresAt": (codex_resets[0].isoformat().replace("+00:00", "Z")
                                     if codex_resets else None),
+            # รายการเต็ม — UI ต้องบอกได้ว่าแต่ละใบหมดเมื่อไหร่ ไม่ใช่แค่ใบที่ใกล้สุด
+            "limitResetsExpiring": [x.isoformat().replace("+00:00", "Z")
+                                    for x in (codex_resets or [])],
             "credits": cs["credits"]["balance"] if cs.get("credits") else None,
             "creditsUnlimited": bool(cs["credits"]["unlimited"]) if cs.get("credits") else False,
             # % ของ Codex มาจาก rate_limits ที่ OpenAI ส่งกลับมาเอง — เป็นทางการ

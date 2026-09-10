@@ -117,4 +117,28 @@ final class UsageSnapshotTests: XCTestCase {
         let it = UsageItem(group: "Claude Code", label: "work", window: "5 ชม.")
         XCTAssertNil(limitResetsLabel(it))
     }
+
+    /// การ์ดใส่ได้บรรทัดเดียว รายละเอียดว่าใบไหนหมดเมื่อไหร่จึงอยู่ใน tooltip
+    func testEachResetExpiryIsAvailableInDetail() throws {
+        let now = Date(timeIntervalSince1970: 1_789_000_000)
+        var it = UsageItem(group: "Codex", label: "Codex", window: "5 ชม.")
+        it.limitResets = 2
+        it.limitResetsExpiring = [now.addingTimeInterval(3600 * 24 * 23 + 3600 * 12),
+                                  now.addingTimeInterval(3600 * 24 * 24 + 3600 * 9)]
+        let detail = try XCTUnwrap(limitResetsDetail(it, now: now))
+        XCTAssertTrue(detail.contains("23วัน 12ชม."))
+        XCTAssertTrue(detail.contains("24วัน 9ชม."))
+        XCTAssertEqual(detail.split(separator: "\n").count, 3, "หัวข้อหนึ่งบรรทัด + ใบละบรรทัด")
+    }
+
+    func testNoResetsMeansNoTooltip() {
+        let it = UsageItem(group: "Claude Code", label: "work", window: "5 ชม.")
+        XCTAssertNil(limitResetsDetail(it, now: Date()))
+    }
+
+    func testTheDetailListDecodesFromTheSnapshot() throws {
+        let json = #"{"generated":"2026-09-10T05:00:00Z","items":[{"group":"Codex","label":"Codex","window":"5h","tokens":0,"calls":0,"weekTokens":0,"limitResets":2,"limitResetsExpiring":["2026-10-04T01:06:00Z","2026-10-04T22:41:00Z"]}]}"#
+        let snap = try XCTUnwrap(UsageSnapshot.decode(from: Data(json.utf8)))
+        XCTAssertEqual(snap.items[0].limitResetsExpiring.count, 2)
+    }
 }
