@@ -1,0 +1,72 @@
+name: release
+
+# ออกรุ่นจาก tag เท่านั้น — เลขเวอร์ชันมาจากชื่อ tag ที่เดียว จะได้ไม่มีทาง
+# ที่ Info.plist กับหน้า Releases บอกคนละเลข
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: เทสต์ก่อนออกรุ่น
+        run: python3 -m unittest discover -s engine/tests
+
+      - name: ติดตั้ง xcodegen
+        run: brew install xcodegen
+
+      - name: เทสต์แอป
+        run: |
+          xcodegen generate
+          xcodebuild -project AIUsage.xcodeproj -scheme AIUsage \
+            -destination 'platform=macOS' test
+
+      - name: build
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          xcodebuild -project AIUsage.xcodeproj -scheme AIUsage -configuration Release \
+            -derivedDataPath build \
+            MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO build
+
+      # เซ็น ad-hoc — ไม่ใช่ Developer ID จึงไม่ผ่าน Gatekeeper เอง แต่ต้องมี
+      # ลายเซ็นอย่างน้อยเท่านี้ ไม่งั้น SMAppService (เปิดเองตอนเข้าระบบ) ปฏิเสธ
+      - name: เซ็นและบีบ
+        run: |
+          APP=build/Build/Products/Release/AIUsage.app
+          codesign --force --deep -s - "$APP"
+          ditto -c -k --keepParent "$APP" AIUsage.zip
+          echo "SHA256=$(shasum -a 256 AIUsage.zip | cut -d' ' -f1)" >> "$GITHUB_ENV"
+
+      - name: ออก Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" AIUsage.zip \
+            --title "$GITHUB_REF_NAME" \
+            --notes "sha256: \`${SHA256}\`
+
+          ติดตั้ง:
+          \`\`\`
+          brew tap ${{ github.repository_owner }}/aiusage https://github.com/${{ github.repository }}
+          brew install --cask aiusage
+          \`\`\`"
+
+      # cask ต้องรู้ทั้งเวอร์ชันและ sha256 ของไฟล์ที่เพิ่งอัปโหลด — ปล่อยให้คนแก้เอง
+      # เมื่อไหร่ก็มีวันที่ลืม แล้ว brew จะดาวน์โหลดไฟล์ที่ checksum ไม่ตรงจนติดตั้งไม่ได้
+      - name: อัปเดต cask ให้ตรงกับรุ่นที่เพิ่งออก
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          /usr/bin/sed -i '' -e "s/^  version \".*\"/  version \"${VERSION}\"/" \
+                             -e "s/^  sha256 \".*\"/  sha256 \"${SHA256}\"/" Casks/aiusage.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/aiusage.rb
+          git diff --cached --quiet || git commit -m "chore(cask): ${GITHUB_REF_NAME}"
+          git push origin HEAD:main

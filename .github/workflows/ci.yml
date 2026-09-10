@@ -1,0 +1,25 @@
+name: ci
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      # เอนจินใช้ stdlib ล้วน ไม่มี pip ให้ลง — python ที่ runner มีอยู่ก็พอ
+      - name: เทสต์เอนจิน
+        run: python3 -m unittest discover -s engine/tests
+
+      - name: ติดตั้ง xcodegen
+        run: brew install xcodegen
+
+      - name: เทสต์แอป
+        run: |
+          xcodegen generate
+          xcodebuild -project AIUsage.xcodeproj -scheme AIUsage \
+            -destination 'platform=macOS' test

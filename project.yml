@@ -23,7 +23,9 @@ targets:
       - Shared
       - path: Assets
         buildPhase: resources
-      - path: engine
+      # เฉพาะแพ็กเกจที่แอปรันจริง — engine/tests เคยถูกก็อปไปทั้งยวงเพราะ
+      # folder reference ไม่เลือกไฟล์ ผู้ใช้ปลายทางไม่ได้รันเทสต์จากใน .app
+      - path: engine/aiusage
         buildPhase: resources
         type: folder
       - path: ai-usage.60s.py
@@ -37,6 +39,12 @@ targets:
         INFOPLIST_KEY_LSUIElement: YES
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
         COMBINE_HIDPI_IMAGES: YES
+    postBuildScripts:
+      # folder reference ก็อปทุกอย่างรวม __pycache__ ที่ python เขียนทิ้งไว้ตอนรันเทสต์
+      - name: ตัด __pycache__ ออกจาก bundle
+        basedOnDependencyAnalysis: false
+        script: |
+          find "$TARGET_BUILD_DIR/$PRODUCT_NAME.app" -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
 
   AIUsageTests:
     type: bundle.unit-test
