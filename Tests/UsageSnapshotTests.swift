@@ -98,12 +98,53 @@ final class UsageSnapshotTests: XCTestCase {
 
     // MARK: - ใบรีเซ็ตลิมิต
 
+    // MARK: - แต่ละใบได้แถวของตัวเอง
+
+    private func codexWith(_ offsets: [TimeInterval], from now: Date) -> UsageItem {
+        var it = UsageItem(group: "Codex", label: "Codex", window: "5 ชม.")
+        it.limitResetsExpiring = offsets.map { now.addingTimeInterval($0) }
+        it.limitResets = offsets.count
+        return it
+    }
+
+    func testEveryResetGetsItsOwnRow() {
+        let now = Date(timeIntervalSince1970: 1_789_000_000)
+        let rows = limitResetRows(codexWith([3600 * 24 * 23, 3600 * 24 * 24], from: now))
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows.map(\.extra), [0, 0])
+        XCTAssertEqual(rows[0].expiresAt, now.addingTimeInterval(3600 * 24 * 23))
+    }
+
+    func testNoResetsMeansNoRows() {
+        XCTAssertTrue(limitResetRows(UsageItem(group: "Codex", label: "Codex", window: "5h")).isEmpty)
+    }
+
+    func testExactlyTheLimitStillShowsThemAll() {
+        let now = Date()
+        let rows = limitResetRows(codexWith([1, 2, 3, 4].map { Double($0) * 86400 }, from: now),
+                                  limit: 4)
+        XCTAssertEqual(rows.count, 4)
+        XCTAssertTrue(rows.allSatisfy { $0.extra == 0 })
+    }
+
+    /// การ์ดต้องไม่ยาวไม่รู้จบเมื่อมีใบเยอะ — ที่เหลือยุบเป็นแถวสรุป
+    func testTooManyResetsCollapseIntoASummaryRow() {
+        let now = Date()
+        let rows = limitResetRows(codexWith([1, 2, 3, 4, 5, 6].map { Double($0) * 86400 }, from: now),
+                                  limit: 4)
+        XCTAssertEqual(rows.count, 4)
+        XCTAssertEqual(rows.prefix(3).map(\.extra), [0, 0, 0])
+        XCTAssertNil(rows[3].expiresAt, "แถวสรุปไม่ผูกกับใบใดใบหนึ่ง")
+        XCTAssertEqual(rows[3].extra, 3, "6 ใบ โชว์ 3 ยุบ 3")
+    }
+
     func testLimitResetsDecodeWithTheirSoonestExpiry() throws {
         let json = #"{"generated":"2026-09-10T05:00:00Z","items":[{"group":"Codex","label":"Codex","window":"5h","tokens":0,"calls":0,"weekTokens":0,"limitResets":2,"limitResetExpiresAt":"2026-10-04T01:06:00Z"}]}"#
         let snap = try XCTUnwrap(UsageSnapshot.decode(from: Data(json.utf8)))
         XCTAssertEqual(snap.items[0].limitResets, 2)
         XCTAssertNotNil(snap.items[0].limitResetExpiresAt)
-        XCTAssertEqual(limitResetsLabel(snap.items[0]), "รีเซ็ตสำรอง 2 ใบ")
+        XCTAssertNil(limitResetsLabel(snap.items[0]),
+                     "ใบที่ยังใช้ได้ไปอยู่เป็นแถวของตัวเองแล้ว บรรทัดท้ายไม่ต้องพูดถึงอีก")
     }
 
     /// ศูนย์ใบต่างจาก "ไม่มีแนวคิดนี้" — อันแรกแปลว่าชนเพดานแล้วจบ ไม่มีทางออก

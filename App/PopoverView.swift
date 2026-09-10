@@ -335,10 +335,14 @@ struct PopoverView: View {
                     }
                     .frame(height: 16)
                 }
+                // ใบรีเซ็ตใช้คอลัมน์เดียวกับหน้าต่างโควตา — มันมีรูปร่างเหมือนกัน
+                // คือมีของ และมีเวลาที่ของนั้นหมด กวาดตาลงคอลัมน์เดียวกันได้เลย
+                ForEach(Array(limitResetRows(item).enumerated()), id: \.offset) { _, row in
+                    resetRow(row, tint: item.tint, detail: limitResetsDetail(item, now: now))
+                }
                 if let note = rowFootnote(item, price: prefs.prices[item.id], now: now) {
                     Text(note).font(.system(size: 10)).foregroundStyle(.secondary)
                         .lineLimit(1)
-                        .help(limitResetsDetail(item, now: now) ?? "")
                 }
             }
         }
@@ -409,6 +413,36 @@ struct PopoverView: View {
 
     /// คอลัมน์เวลารีเซ็ต — ว่างเมื่อไม่มีหรือรีเซ็ตผ่านไปแล้ว
     /// "รีเซ็ตแล้ว" ที่ค้างโชว์คือ noise: เลขในแถวนั้นสดกว่าข้อความนี้เสมอ
+    /// แถวใบรีเซ็ตหนึ่งใบ — คอลัมน์เดียวกับแถวหน้าต่างเป๊ะ ไม่งั้นตากวาดลงมาแล้วสะดุด
+    @ViewBuilder private func resetRow(_ row: ResetRow, tint: Color,
+                                       detail: String?) -> some View {
+        HStack(spacing: 8) {
+            Text(row.expiresAt == nil ? "" : "รีเซ็ต")
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .foregroundStyle(.primary.opacity(0.62))
+                .lineLimit(1)
+                .frame(width: 32, alignment: .leading)
+            // จุด ไม่ใช่แถบ — ใบรีเซ็ตเป็นของคงเหลือ ไม่ใช่ความคืบหน้า
+            // แถบทึบตรงนี้จะอ่านเป็น "ใช้ไปแล้วเท่านี้" ซึ่งคนละเรื่องกันเลย
+            HStack(spacing: 0) {
+                if row.expiresAt != nil {
+                    Circle().fill(tint).frame(width: 5, height: 5)
+                }
+                Spacer(minLength: 0)
+            }
+            Text(row.extra > 0 ? "+\(row.extra) ใบ" : "")
+                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .monospacedDigit()
+                .frame(width: 42, alignment: .trailing)
+            Text(row.expiresAt.map { countdownText(to: $0, from: now) } ?? "")
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+                .frame(width: 56, alignment: .trailing)
+        }
+        .frame(height: 16)
+        .help(row.extra > 0 ? (detail ?? "") : "")
+    }
+
     private func resetColumnText(_ resetAt: Date?) -> String {
         guard let resetAt, resetAt > now else { return "" }
         return countdownText(to: resetAt, from: now)
@@ -557,10 +591,30 @@ func creditsLabel(_ item: UsageItem) -> String? {
     return "เครดิต \(credits == credits.rounded() ? String(Int(credits)) : String(format: "%.2f", credits))"
 }
 
-/// ใบรีเซ็ตลิมิต — ทางออกตอนชนเพดาน ศูนย์ก็ต้องบอกเพราะแปลว่าไม่มีทางออกแล้ว
+/// หนึ่งใบรีเซ็ตหนึ่งแถว — `expiresAt` เป็น nil คือแถวสรุปที่ยุบใบที่เหลือไว้
+struct ResetRow: Equatable {
+    let expiresAt: Date?
+    let extra: Int
+}
+
+/// ใบรีเซ็ตที่ยังใช้ได้ เรียงใบที่จะหมดก่อน
+///
+/// แต่ละใบมีวันหมดอายุคนละวัน การยุบเป็น "2 ใบ" ทิ้งข้อมูลที่ใช้ตัดสินใจจริงไป —
+/// สิ่งที่อยากรู้คือ "ต้องใช้ภายในเมื่อไหร่" ไม่ใช่ "มีกี่ใบ"
+///
+/// จำกัดจำนวนแถวไว้เพราะการ์ดต้องไม่ยาวไม่รู้จบ ที่เหลือยุบเป็นแถวสรุป
+func limitResetRows(_ item: UsageItem, limit: Int = 4) -> [ResetRow] {
+    let all = item.limitResetsExpiring
+    guard !all.isEmpty else { return [] }
+    if all.count <= limit { return all.map { ResetRow(expiresAt: $0, extra: 0) } }
+    return all.prefix(limit - 1).map { ResetRow(expiresAt: $0, extra: 0) }
+        + [ResetRow(expiresAt: nil, extra: all.count - (limit - 1))]
+}
+
+/// เหลือศูนย์ใบต้องบอก — แปลว่าชนเพดานแล้วจบ ไม่มีทางออก
+/// ส่วนใบที่ยังใช้ได้ไปอยู่เป็นแถวของตัวเองในตาราง จะได้เห็นวันหมดอายุครบทุกใบ
 func limitResetsLabel(_ item: UsageItem) -> String? {
-    guard let count = item.limitResets else { return nil }
-    return count == 0 ? "ไม่เหลือใบรีเซ็ต" : "รีเซ็ตสำรอง \(count) ใบ"
+    item.limitResets == 0 ? "ไม่เหลือใบรีเซ็ต" : nil
 }
 
 /// รายละเอียดว่าแต่ละใบหมดเมื่อไหร่ — บรรทัดเดียวในการ์ดใส่ไม่ไหว จึงอยู่ใน tooltip
