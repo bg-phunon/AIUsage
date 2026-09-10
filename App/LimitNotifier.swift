@@ -73,11 +73,12 @@ final class LimitNotifier {
     /// คืนใบที่ส่งไป — ผู้เรียกไม่ต้องใช้ แต่เทสต์กับการดีบักอยากรู้
     @discardableResult
     func notify(items: [UsageItem]) -> [LimitAlert] {
-        var sent = Set(defaults.stringArray(forKey: Self.key) ?? [])
-        let alerts = pendingLimitAlerts(items: items, alreadySent: sent)
+        // เก็บเป็นลำดับ ไม่ใช่ Set — ตอนตัดของเก่าทิ้งต้องรู้ว่าอันไหนเก่า
+        var sent = defaults.stringArray(forKey: Self.key) ?? []
+        let alerts = pendingLimitAlerts(items: items, alreadySent: Set(sent))
         guard !alerts.isEmpty else { return [] }
         for alert in alerts {
-            sent.insert(alert.key)
+            sent.append(alert.key)
             guard let center else { continue }
             let content = UNMutableNotificationContent()
             content.title = alert.title
@@ -85,8 +86,12 @@ final class LimitNotifier {
             center.add(UNNotificationRequest(identifier: alert.key,
                                              content: content, trigger: nil))
         }
-        // เก็บท้ายสุดไว้ กุญแจเก่าผูกกับหน้าต่างที่ผ่านไปแล้ว ไม่มีวันถูกถามอีก
-        defaults.set(Array(sent).suffix(Self.maxRemembered), forKey: Self.key)
+        // ตัดหัวทิ้ง กุญแจเก่าผูกกับหน้าต่างที่ผ่านไปแล้ว ไม่มีวันถูกถามอีก
+        //
+        // ต้องห่อด้วย Array() — suffix() คืน ArraySlice ซึ่งไม่ใช่ property-list
+        // type แล้ว UserDefaults จะโยน NSInvalidArgumentException ทิ้งทั้งแอป
+        // (เคสจริง 2026-09-10: แอปพังวนสามรอบทันทีที่บัญชีแรกแตะ 95%)
+        defaults.set(Array(sent.suffix(Self.maxRemembered)), forKey: Self.key)
         return alerts
     }
 }

@@ -101,4 +101,54 @@ final class LimitNotifierTests: XCTestCase {
             alreadySent: [])
         XCTAssertEqual(Set(alerts.map(\.key)).count, 2)
     }
+
+    // MARK: - การจำว่าส่งอะไรไปแล้ว (ที่ pendingLimitAlerts ไม่ครอบ)
+
+    private func freshDefaults() -> UserDefaults {
+        let suite = "aiusage-notifier-\(UUID().uuidString)"
+        UserDefaults().removePersistentDomain(forName: suite)
+        return UserDefaults(suiteName: suite)!
+    }
+
+    /// เคสจริง 2026-09-10: default แตะ 95% แล้วไม่มีอะไรถูกบันทึกลง UserDefaults เลย
+    /// เทสต์เดิมจับไม่ได้เพราะทดสอบแต่ตัวตัดสินใจล้วนๆ ไม่เคยแตะทางเดินจริง
+    func testNotifyRecordsWhatItSent() {
+        let defaults = freshDefaults()
+        let notifier = LimitNotifier(defaults: defaults, center: nil)
+        var it = UsageItem(group: "Claude Code", label: "default", window: "5 ชม.")
+        it.pct = 95
+        it.confidence = "valid"
+        it.resetAt = reset
+
+        let sent = notifier.notify(items: [it])
+        XCTAssertEqual(sent.count, 1)
+        XCTAssertEqual(defaults.stringArray(forKey: "sentLimitAlerts"), [sent[0].key],
+                       "ไม่ได้จำว่าส่งอะไรไป — รอบหน้าจะยิงซ้ำทุก 60 วินาที")
+    }
+
+    func testTheSecondRoundStaysQuiet() {
+        let defaults = freshDefaults()
+        let notifier = LimitNotifier(defaults: defaults, center: nil)
+        var it = UsageItem(group: "Claude Code", label: "default", window: "5 ชม.")
+        it.pct = 96
+        it.confidence = "valid"
+        it.resetAt = reset
+
+        XCTAssertEqual(notifier.notify(items: [it]).count, 1)
+        XCTAssertTrue(notifier.notify(items: [it]).isEmpty)
+    }
+
+    func testManyAlertsAcrossRoundsAllSurvive() {
+        let defaults = freshDefaults()
+        let notifier = LimitNotifier(defaults: defaults, center: nil)
+        var a = UsageItem(group: "Claude Code", label: "a", window: "5 ชม.")
+        a.pct = 96; a.confidence = "valid"; a.resetAt = reset
+        var b = UsageItem(group: "Claude Code", label: "b", window: "5 ชม.")
+        b.pct = 96; b.confidence = "valid"; b.resetAt = reset
+
+        notifier.notify(items: [a])
+        notifier.notify(items: [b])
+        XCTAssertEqual(defaults.stringArray(forKey: "sentLimitAlerts")?.count, 2,
+                       "ของรอบก่อนต้องไม่หายตอนรอบใหม่เขียนทับ")
+    }
 }
