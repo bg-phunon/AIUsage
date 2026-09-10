@@ -74,4 +74,25 @@ final class UsageSnapshotTests: XCTestCase {
         let snap = try XCTUnwrap(UsageSnapshot.decode(from: Data(json.utf8)))
         XCTAssertNil(snap.liveUsage, "ไม่มีฟิลด์ = ไม่รู้ ไม่ใช่ปิด")
     }
+
+    /// เครดิต = โควตาที่ใช้ต่อได้หลังชนเพดานแผน · 0 ต้องแยกจาก "ไม่มีแนวคิดนี้"
+    func testCreditsDecodeAndZeroIsNotTreatedAsMissing() throws {
+        let json = #"{"generated":"2026-09-10T05:00:00Z","items":[{"group":"Codex","label":"Codex","window":"5h","tokens":0,"calls":0,"weekTokens":0,"credits":0,"creditsUnlimited":false}]}"#
+        let snap = try XCTUnwrap(UsageSnapshot.decode(from: Data(json.utf8)))
+        XCTAssertEqual(snap.items[0].credits, 0)
+        XCTAssertEqual(creditsLabel(snap.items[0]), "เครดิต 0")
+    }
+
+    func testABucketWithNoCreditConceptSaysNothing() {
+        var it = UsageItem(group: "Claude Code", label: "work", window: "5 ชม.")
+        it.credits = nil
+        XCTAssertNil(creditsLabel(it), "ถังที่ไม่มีเครดิตต้องเงียบ ไม่ใช่ขึ้น 0")
+    }
+
+    func testUnlimitedIsSaidInWordsNotAsANumber() {
+        var it = UsageItem(group: "Codex", label: "Codex", window: "5 ชม.")
+        it.credits = 0
+        it.creditsUnlimited = true
+        XCTAssertEqual(creditsLabel(it), "เครดิตไม่จำกัด")
+    }
 }

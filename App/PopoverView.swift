@@ -548,12 +548,21 @@ func displayableWindows(_ item: UsageItem) -> [WindowRow] {
 }
 
 /// บรรทัดเดียวใต้แถบ — สั้นพอที่จะไม่ตัดบรรทัด nil เมื่อไม่มีอะไรต้องบอก
+/// เครดิตคือโควตาที่ใช้ต่อได้หลังชนเพดานแผน — ศูนย์ก็ต้องบอก เพราะมันแปลว่า
+/// ชนเพดานเมื่อไหร่คือหยุด ไม่ใช่จ่ายเพิ่มแล้วไปต่อได้
+func creditsLabel(_ item: UsageItem) -> String? {
+    if item.creditsUnlimited { return "เครดิตไม่จำกัด" }
+    guard let credits = item.credits else { return nil }
+    return "เครดิต \(credits == credits.rounded() ? String(Int(credits)) : String(format: "%.2f", credits))"
+}
+
 func rowFootnote(_ item: UsageItem, price: Price?, now: Date) -> String? {
     if let error = item.error { return String(error.prefix(40)) }
     if item.local == true { return nil }
     var parts: [String] = []
     if item.tokens > 0 { parts.append(item.tokensText) }
     if let cost = costLabel(item, price: price) { parts.append(cost) }
+    if let credits = creditsLabel(item) { parts.append(credits) }
     return parts.isEmpty ? nil : parts.joined(separator: " · ")
 }
 

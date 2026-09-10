@@ -42,12 +42,17 @@ struct UsageItem: Codable, Identifiable, Hashable {
     /// "notional" = จ่ายเหมาไปแล้ว ตัวเลขคือมูลค่าถ้ายิงผ่าน API ไม่ใช่บิล
     var costKind: String? = nil
     var modelWindows: [ModelWindow] = []
+    /// โควตาส่วนที่ใช้ต่อได้หลังชนเพดานแผน — nil = ถังนี้ไม่มีแนวคิดเรื่องเครดิต
+    /// ต่างจาก 0 ที่แปลว่ามีแต่หมดแล้ว ซึ่งเป็นข้อมูลที่ต้องบอกผู้ใช้
+    var credits: Double? = nil
+    var creditsUnlimited: Bool = false
 
     enum CodingKeys: String, CodingKey {
         case group, label, window, pct, tokens, cost, calls, resetAt, weekTokens, weekCost, weekPct
         case weekResetAt
         case profile, plan, pctSource, confidence, weekConfidence, dataFetchedAt, severity
         case activeLimit, error, local, costKnown, costCurrency, costSource, costEstimated, costKind
+        case credits, creditsUnlimited
         case modelWindows
     }
 
@@ -107,6 +112,8 @@ struct UsageItem: Codable, Identifiable, Hashable {
         costEstimated = try c.decodeIfPresent(Bool.self, forKey: .costEstimated) ?? false
         costKind = try c.decodeIfPresent(String.self, forKey: .costKind)
         modelWindows = try c.decodeIfPresent([ModelWindow].self, forKey: .modelWindows) ?? []
+        credits = try c.decodeIfPresent(Double.self, forKey: .credits)
+        creditsUnlimited = try c.decodeIfPresent(Bool.self, forKey: .creditsUnlimited) ?? false
     }
 
     var id: String { "\(group)/\(label)" }

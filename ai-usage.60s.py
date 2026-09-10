@@ -521,8 +521,9 @@ def codex_stats(codex_dir):
     files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
 
     tokens = 0
-    windows = {}       # ช่อง → {"win": หน้าต่างดิบ, "ts": เวลาของ record ที่ได้มา}
+    windows = {}       # ช่อง → {limit_id → {"win": หน้าต่างดิบ, "ts": เวลาของ record}}
     last_activity = None
+    credits = None     # (ts, ค่า) — เครดิตล่าสุดที่อ่านออก
     week_cut = now_utc() - timedelta(days=WEEK_DAYS)
 
     for path in files[:60]:
@@ -555,6 +556,9 @@ def codex_stats(codex_dir):
                 if not isinstance(rl, dict):
                     continue
                 limit_id = rl.get("limit_id")
+                cr = parse_credits(rl.get("credits"))
+                if cr is not None and ts is not None and (credits is None or ts > credits[0]):
+                    credits = (ts, cr)
                 for slot in ("primary", "secondary"):
                     win = rl.get(slot)
                     if not isinstance(win, dict):
@@ -575,7 +579,23 @@ def codex_stats(codex_dir):
     return {"tokens": tokens,
             "windows": {slot: pick_live_window(buckets)
                         for slot, buckets in windows.items() if buckets},
+            "credits": credits[1] if credits else None,
             "lastActivity": last_activity}
+
+
+def parse_credits(raw):
+    """เครดิตจากก้อน rate_limits — โควตาส่วนที่ใช้ต่อได้หลังชนเพดานแผน
+
+    คนละเรื่องกับ % จึงห้ามยุบรวมกัน · balance เป็น string ในล็อก อ่านไม่ออกเมื่อไหร่
+    ให้คืน None ไปเลย ดีกว่าเดาเป็น 0 ซึ่งอ่านว่า "หมดแล้ว" ทั้งที่แปลว่า "ไม่รู้"
+    """
+    if not isinstance(raw, dict):
+        return None
+    try:
+        balance = float(raw.get("balance"))
+    except (TypeError, ValueError):
+        return None
+    return {"balance": balance, "unlimited": bool(raw.get("unlimited"))}
 
 
 def pick_live_window(buckets):
@@ -837,6 +857,9 @@ CONTRACT_DEFAULTS = {
     "costKnown": False, "costCurrency": None,
     "costSource": None, "costEstimated": False, "costKind": None,
     "modelWindows": [],
+    # เครดิต = โควตาส่วนที่ใช้ต่อได้หลังชนเพดานแผน · None คือถังนี้ไม่มีแนวคิดนี้
+    # ต่างจาก 0.0 ที่แปลว่า "มีแนวคิดนี้แต่หมดแล้ว"
+    "credits": None, "creditsUnlimited": False,
 }
 
 
@@ -1237,6 +1260,8 @@ def collect(live_override=None):
             "weekCost": None,
             "weekPct": round(cf["weekPct"], 1) if cf["weekPct"] is not None else None,
             "profile": None,
+            "credits": cs["credits"]["balance"] if cs.get("credits") else None,
+            "creditsUnlimited": bool(cs["credits"]["unlimited"]) if cs.get("credits") else False,
             # % ของ Codex มาจาก rate_limits ที่ OpenAI ส่งกลับมาเอง — เป็นทางการ
             # เท่ากับของ Anthropic ความมั่นใจจึงต้องเดินตามอายุหน้าต่างเหมือนกัน
             # จุดยึดที่ผู้ใช้จดมาไม่ใช่ตัวเลขทางการ — lower_bound บอกที่มาไว้แล้ว
