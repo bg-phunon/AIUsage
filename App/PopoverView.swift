@@ -556,6 +556,12 @@ func creditsLabel(_ item: UsageItem) -> String? {
     return "เครดิต \(credits == credits.rounded() ? String(Int(credits)) : String(format: "%.2f", credits))"
 }
 
+/// ใบรีเซ็ตลิมิต — ทางออกตอนชนเพดาน ศูนย์ก็ต้องบอกเพราะแปลว่าไม่มีทางออกแล้ว
+func limitResetsLabel(_ item: UsageItem) -> String? {
+    guard let count = item.limitResets else { return nil }
+    return count == 0 ? "ไม่เหลือใบรีเซ็ต" : "รีเซ็ตสำรอง \(count) ใบ"
+}
+
 func rowFootnote(_ item: UsageItem, price: Price?, now: Date) -> String? {
     if let error = item.error { return String(error.prefix(40)) }
     if item.local == true { return nil }
@@ -563,6 +569,7 @@ func rowFootnote(_ item: UsageItem, price: Price?, now: Date) -> String? {
     if item.tokens > 0 { parts.append(item.tokensText) }
     if let cost = costLabel(item, price: price) { parts.append(cost) }
     if let credits = creditsLabel(item) { parts.append(credits) }
+    if let resets = limitResetsLabel(item) { parts.append(resets) }
     return parts.isEmpty ? nil : parts.joined(separator: " · ")
 }
 

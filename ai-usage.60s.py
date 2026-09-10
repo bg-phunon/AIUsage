@@ -860,6 +860,8 @@ CONTRACT_DEFAULTS = {
     # เครดิต = โควตาส่วนที่ใช้ต่อได้หลังชนเพดานแผน · None คือถังนี้ไม่มีแนวคิดนี้
     # ต่างจาก 0.0 ที่แปลว่า "มีแนวคิดนี้แต่หมดแล้ว"
     "credits": None, "creditsUnlimited": False,
+    # ใบรีเซ็ตลิมิตที่ยังไม่หมดอายุ · None = ถังนี้ไม่มีแนวคิดนี้
+    "limitResets": None, "limitResetExpiresAt": None,
 }
 
 
@@ -1103,6 +1105,27 @@ def effective_live_usage(cfg, override=None):
     return bool(cfg.get("liveUsage", False))
 
 
+def parse_codex_resets(raw):
+    """ใบรีเซ็ตลิมิตที่จดมาจากหน้า usage ของ OpenAI — คืนวันหมดอายุ เรียงใบที่จะหมดก่อน
+
+    ใบรีเซ็ตคือทางออกตอนชนเพดาน กดแล้วโควตากลับมาเต็ม แต่มีวันหมดอายุ ใช้ไม่ทัน
+    ก็หายไปเฉยๆ · ไม่มีแหล่งในเครื่องเลย ไม่อยู่ในล็อก ไม่อยู่ใน sqlite ของ Codex
+    จึงต้องจดมาเหมือน codexAnchor
+
+    รูปแบบ: {"expiring": ["2026-10-04T01:06:00Z", "2026-10-04T22:41:00Z"]}
+    """
+    if not isinstance(raw, dict):
+        return None
+    stamps = [parse_ts(x) for x in (raw.get("expiring") or []) if isinstance(x, str)]
+    stamps = sorted(x for x in stamps if x is not None)
+    return stamps or None
+
+
+def live_codex_resets(resets, now):
+    """เฉพาะใบที่ยังใช้ได้ — ใบที่เลยเวลาแล้วหายไปเอง ไม่ต้องรอใครมาลบ"""
+    return [x for x in (resets or []) if x > now]
+
+
 def parse_codex_anchor(raw):
     """จุดยึดโควตา Codex จากหน้า usage ของ OpenAI — พี่น้องกับ parse_qwen_anchor
 
@@ -1247,6 +1270,8 @@ def collect(live_override=None):
             continue
         cf = apply_codex_anchor(codex_fields(cs, now),
                                 parse_codex_anchor(cfg.get("codexAnchor")), now)
+        configured = parse_codex_resets(cfg.get("codexLimitResets"))
+        codex_resets = live_codex_resets(configured, now) if configured is not None else None
         items.append(with_contract({
             "group": "Codex",
             "label": c.get("label", "Codex"),
@@ -1260,6 +1285,9 @@ def collect(live_override=None):
             "weekCost": None,
             "weekPct": round(cf["weekPct"], 1) if cf["weekPct"] is not None else None,
             "profile": None,
+            "limitResets": len(codex_resets) if codex_resets is not None else None,
+            "limitResetExpiresAt": (codex_resets[0].isoformat().replace("+00:00", "Z")
+                                    if codex_resets else None),
             "credits": cs["credits"]["balance"] if cs.get("credits") else None,
             "creditsUnlimited": bool(cs["credits"]["unlimited"]) if cs.get("credits") else False,
             # % ของ Codex มาจาก rate_limits ที่ OpenAI ส่งกลับมาเอง — เป็นทางการ

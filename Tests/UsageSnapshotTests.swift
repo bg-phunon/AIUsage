@@ -95,4 +95,26 @@ final class UsageSnapshotTests: XCTestCase {
         it.creditsUnlimited = true
         XCTAssertEqual(creditsLabel(it), "เครดิตไม่จำกัด")
     }
+
+    // MARK: - ใบรีเซ็ตลิมิต
+
+    func testLimitResetsDecodeWithTheirSoonestExpiry() throws {
+        let json = #"{"generated":"2026-09-10T05:00:00Z","items":[{"group":"Codex","label":"Codex","window":"5h","tokens":0,"calls":0,"weekTokens":0,"limitResets":2,"limitResetExpiresAt":"2026-10-04T01:06:00Z"}]}"#
+        let snap = try XCTUnwrap(UsageSnapshot.decode(from: Data(json.utf8)))
+        XCTAssertEqual(snap.items[0].limitResets, 2)
+        XCTAssertNotNil(snap.items[0].limitResetExpiresAt)
+        XCTAssertEqual(limitResetsLabel(snap.items[0]), "รีเซ็ตสำรอง 2 ใบ")
+    }
+
+    /// ศูนย์ใบต่างจาก "ไม่มีแนวคิดนี้" — อันแรกแปลว่าชนเพดานแล้วจบ ไม่มีทางออก
+    func testRunningOutOfResetsIsSaidOutLoud() {
+        var it = UsageItem(group: "Codex", label: "Codex", window: "5 ชม.")
+        it.limitResets = 0
+        XCTAssertEqual(limitResetsLabel(it), "ไม่เหลือใบรีเซ็ต")
+    }
+
+    func testABucketWithoutResetsSaysNothing() {
+        let it = UsageItem(group: "Claude Code", label: "work", window: "5 ชม.")
+        XCTAssertNil(limitResetsLabel(it))
+    }
 }
