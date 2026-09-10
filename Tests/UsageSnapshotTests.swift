@@ -60,4 +60,18 @@ final class UsageSnapshotTests: XCTestCase {
                                  "snapshot.json จริงบนเครื่อง decode ไม่ผ่าน")
         XCTAssertFalse(snap.items.isEmpty)
     }
+
+    /// หน้าตั้งค่าต้องรู้ว่าเอนจินเปิด live อยู่จริงไหม ไม่ใช่เดาจาก UserDefaults
+    /// ฝั่งเดียว — เครื่องที่ใช้มาก่อนมีสวิตช์ในแอปเก็บค่าไว้ที่ config.json
+    func testSnapshotCarriesTheEffectiveLiveUsageState() throws {
+        let json = #"{"generated":"2026-09-10T05:00:00Z","liveUsage":true,"items":[]}"#
+        let snap = try XCTUnwrap(UsageSnapshot.decode(from: Data(json.utf8)))
+        XCTAssertEqual(snap.liveUsage, true)
+    }
+
+    func testOlderSnapshotsWithoutTheFieldStillDecode() throws {
+        let json = #"{"generated":"2026-09-10T05:00:00Z","items":[]}"#
+        let snap = try XCTUnwrap(UsageSnapshot.decode(from: Data(json.utf8)))
+        XCTAssertNil(snap.liveUsage, "ไม่มีฟิลด์ = ไม่รู้ ไม่ใช่ปิด")
+    }
 }

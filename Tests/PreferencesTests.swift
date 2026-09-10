@@ -188,4 +188,27 @@ final class PreferencesTests: XCTestCase {
         defaults.set("nonsense", forKey: "barDensity")
         XCTAssertEqual(Preferences(defaults: defaults).barDensity, .full)
     }
+
+    // MARK: - ความยินยอมให้อ่าน Keychain
+
+    /// สามสถานะ ไม่ใช่สอง — "ยังไม่เคยเลือก" ต้องแยกจาก "เลือกปิด" ให้ได้
+    /// ไม่งั้นคนที่ใช้อยู่ก่อนหน้านี้จะถูกปิดฟีเจอร์ทิ้งตอนอัปเดต
+    func testLiveUsageStartsWithNoOpinion() {
+        XCTAssertNil(Preferences(defaults: defaults).liveUsage)
+    }
+
+    func testTurningLiveUsageOnIsRemembered() {
+        let prefs = Preferences(defaults: defaults)
+        prefs.setLiveUsage(true)
+        XCTAssertEqual(prefs.liveUsage, true)
+        XCTAssertEqual(Preferences(defaults: defaults).liveUsage, true)
+    }
+
+    func testTurningLiveUsageOffIsDistinctFromNeverChoosing() {
+        let prefs = Preferences(defaults: defaults)
+        prefs.setLiveUsage(false)
+        XCTAssertEqual(prefs.liveUsage, false)
+        XCTAssertEqual(Preferences(defaults: defaults).liveUsage, false,
+                       "false ต้องอยู่รอดข้ามการเปิดแอป ไม่ใช่กลายเป็น nil")
+    }
 }

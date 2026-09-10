@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var lastWake = Date.distantPast
     private let model = UsageModel()
     private var prefsObserver: AnyCancellable?
+    private let notifier = LimitNotifier()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // ย้ายค่าที่เคยตั้งไว้ในกลไกเดิม (visibleMenuBarProviders) มาเป็น prefs.hidden
@@ -25,6 +26,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
         // เปิดเครื่องแล้วแอปต้องขึ้นเอง — ไม่มีใครจำได้ว่าต้องเปิด widget ทุกเช้า
         LaunchAtLogin.sync(wanted: model.prefs.launchAtLogin)
+
+        // ขอสิทธิ์เฉพาะตอนที่จะใช้จริง — แอปที่เด้งขอตั้งแต่วินาทีแรกทั้งที่ผู้ใช้
+        // ปิดฟีเจอร์ไว้ คือแอปที่ถูกกด "ไม่อนุญาต" แล้วขอใหม่ไม่ได้อีก
+        if model.prefs.notifyNearLimit { notifier.requestPermission() }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.action = #selector(togglePopover)
@@ -39,7 +44,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             rootView: PopoverView(model: model, prefs: model.prefs))
 
         if let script = EngineRunner.bundledScriptURL {
-            runner = EngineRunner(scriptURL: script)
+            // อ่านสดทุกรอบ ผู้ใช้สลับสวิตช์แล้วต้องมีผลรอบถัดไป ไม่ต้องปิดเปิดแอป
+            runner = EngineRunner(scriptURL: script,
+                                  liveUsage: { [weak self] in self?.model.prefs.liveUsage })
         } else {
             model.engineError = "ไม่พบ ai-usage.60s.py ใน bundle"
         }
@@ -93,6 +100,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             }
             self.model.snapshot = .load()
             self.model.wokeRecently = self.wokeRecently
+            if self.model.prefs.notifyNearLimit {
+                self.notifier.notify(items: self.model.snapshot.items)
+            }
             self.updateBar()
         }
         updateBar()

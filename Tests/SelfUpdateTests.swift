@@ -144,4 +144,44 @@ final class SelfUpdateTests: XCTestCase {
         XCTAssertFalse(UpdateState.upToDate(version: "a", build: 1).isActionable)
         XCTAssertFalse(UpdateState.unavailable("x").isActionable)
     }
+
+    // MARK: - แอปที่ Homebrew เป็นเจ้าของ
+
+    /// คนที่ลงผ่าน `brew install --cask` ไม่มี repo ในเครื่อง เมนูเดิมจะบอกให้เขา
+    /// "รัน ./setup.sh หนึ่งครั้ง" ซึ่งเป็นคำแนะนำที่ทำตามไม่ได้เลย
+    func testHomebrewInstallIsDetectedFromItsCaskroomEntry() {
+        let caskroom = root.appendingPathComponent("Caskroom/aiusage")
+        try? FileManager.default.createDirectory(at: caskroom, withIntermediateDirectories: true)
+        XCTAssertTrue(installedByHomebrew([caskroom.path]))
+        XCTAssertFalse(installedByHomebrew([root.appendingPathComponent("Caskroom/nope").path]))
+    }
+
+    func testBrewOwnedAppNeverOffersToBuildFromSource() {
+        let state = updateState(nil, sourceChangedAt: nil, toolsPresent: false, brewManaged: true)
+        XCTAssertEqual(state, .managedByHomebrew)
+        XCTAssertFalse(state.isActionable, "ปุ่มต้องกดไม่ได้ — brew เป็นคนอัปเดต ไม่ใช่เรา")
+    }
+
+    /// แม้จะมี repo อยู่ในเครื่องด้วย ถ้า brew เป็นเจ้าของแอปที่ติดตั้งไว้
+    /// การ build ทับจะทำให้ brew กับของจริงไม่ตรงกัน
+    func testBrewOwnershipWinsOverALocalCheckout() {
+        let info = InstallInfo(repo: "/tmp/repo", installedAt: Date(timeIntervalSince1970: 1),
+                               version: "abc", build: 1)
+        let state = updateState(info, sourceChangedAt: Date(timeIntervalSince1970: 9_999),
+                                toolsPresent: true, brewManaged: true)
+        XCTAssertEqual(state, .managedByHomebrew)
+    }
+
+    func testTheMenuTellsBrewUsersTheExactCommand() {
+        let title = updateMenuTitle(.managedByHomebrew, now: Date())
+        XCTAssertTrue(title.contains("brew upgrade --cask"), "ต้องบอกคำสั่งที่ใช้ได้จริง")
+    }
+
+    func testSourceInstallsAreUntouchedByTheNewCase() {
+        let info = InstallInfo(repo: "/tmp/repo", installedAt: Date(timeIntervalSince1970: 1),
+                               version: "abc", build: 1)
+        let state = updateState(info, sourceChangedAt: Date(timeIntervalSince1970: 9_999),
+                                toolsPresent: true, brewManaged: false)
+        XCTAssertTrue(state.isActionable)
+    }
 }

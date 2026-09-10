@@ -57,6 +57,8 @@ final class Preferences: ObservableObject {
         static let launchAtLogin = "launchAtLogin"
         static let order = "bucketOrder"
         static let barDensity = "barDensity"
+        static let liveUsage = "liveUsage"
+        static let notifyNearLimit = "notifyNearLimit"
     }
 
     private let defaults: UserDefaults
@@ -74,6 +76,13 @@ final class Preferences: ObservableObject {
     /// แถบเมนูกะทัดรัดแค่ไหน — ไม่ตรวจจอให้เอง เพราะจอนอกกับจอในเครื่องคนละเรื่อง
     /// และการสลับเองตอนต่อจอชัดเจนกว่าการเดาแล้วเดาผิด
     @Published private(set) var barDensity: BarDensity
+    /// ยอมให้เอนจินอ่าน OAuth token ของ Claude Code จาก Keychain เพื่อขอ % ทางการ
+    /// หรือไม่ — nil คือยังไม่เคยเลือก ซึ่งไม่เท่ากับ false: เครื่องที่ใช้มาก่อนคีย์นี้
+    /// จะเกิดต้องได้ค่าเดิมของตัวเองจาก config.json ไม่ใช่ถูกปิดทิ้งตอนอัปเดต
+    @Published private(set) var liveUsage: Bool?
+    /// เด้งแจ้งเตือนตอนถังไหนข้าม 80% หรือ 95% — เปิดไว้ เพราะ widget โควตาที่ไม่บอก
+    /// ตอนใกล้หมดก็เหลือแค่ของประดับที่ต้องเปิดดูเอง
+    @Published private(set) var notifyNearLimit: Bool
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -87,6 +96,20 @@ final class Preferences: ObservableObject {
         order = (defaults.array(forKey: Key.order) as? [String]) ?? []
         // ค่าที่อ่านไม่ออก (ของเวอร์ชันหน้า/ไฟล์เสีย) ตกกลับเป็นเต็ม ไม่ใช่พัง
         barDensity = BarDensity(rawValue: defaults.string(forKey: Key.barDensity) ?? "") ?? .full
+        liveUsage = defaults.object(forKey: Key.liveUsage) == nil
+            ? nil : defaults.bool(forKey: Key.liveUsage)
+        notifyNearLimit = defaults.object(forKey: Key.notifyNearLimit) == nil
+            ? true : defaults.bool(forKey: Key.notifyNearLimit)
+    }
+
+    func setNotifyNearLimit(_ enabled: Bool) {
+        notifyNearLimit = enabled
+        defaults.set(enabled, forKey: Key.notifyNearLimit)
+    }
+
+    func setLiveUsage(_ enabled: Bool) {
+        liveUsage = enabled
+        defaults.set(enabled, forKey: Key.liveUsage)
     }
 
     var maxPins: Int { Self.maxPins }

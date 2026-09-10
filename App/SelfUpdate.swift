@@ -29,10 +29,20 @@ struct InstallInfo: Codable, Equatable {
 enum UpdateState: Equatable {
     case upToDate(version: String, build: Int)
     case available(since: Date)
+    /// Homebrew เป็นเจ้าของแอปนี้ — build ทับเองจะทำให้ brew กับของจริงไม่ตรงกัน
+    case managedByHomebrew
     /// เหตุผลที่แสดงต่อผู้ใช้ได้เลย — ทางที่ทำอะไรไม่ได้ต้องบอกว่าทำไม ไม่ใช่เงียบ
     case unavailable(String)
 
     var isActionable: Bool { if case .available = self { return true } else { return false } }
+}
+
+/// ร่องรอยที่ Homebrew ทิ้งไว้ตอนลง cask — โฟลเดอร์นี้อยู่ต่อแม้ตัว .app จะถูกย้าย
+/// ไป /Applications แล้ว จึงเป็นสัญญาณที่เชื่อได้กว่าการเดาจากที่อยู่ของ bundle
+let caskroomPaths = ["/opt/homebrew/Caskroom/aiusage", "/usr/local/Caskroom/aiusage"]
+
+func installedByHomebrew(_ paths: [String] = caskroomPaths, fm: FileManager = .default) -> Bool {
+    paths.contains { fm.fileExists(atPath: $0) }
 }
 
 /// ที่ที่โค้ดของแอปอยู่จริง — Tests/ ไม่อยู่ในนี้เพราะแก้เทสต์ไม่ได้เปลี่ยนตัวแอป
@@ -86,7 +96,10 @@ func buildToolsPresent(_ groups: [[String]] = buildToolCandidates,
 }
 
 func updateState(_ info: InstallInfo?, sourceChangedAt: Date?,
-                 toolsPresent: Bool) -> UpdateState {
+                 toolsPresent: Bool, brewManaged: Bool = false) -> UpdateState {
+    // ถามก่อนทุกข้อ — เครื่องนักพัฒนามี repo อยู่ด้วยได้ แต่ถ้าตัวที่ติดตั้งมาจาก
+    // brew การ build ทับจะทำให้ `brew list --versions` โกหกทันที
+    if brewManaged { return .managedByHomebrew }
     guard let info else {
         return .unavailable("ยังไม่รู้ว่าโค้ดอยู่ไหน — รัน ./setup.sh หนึ่งครั้ง")
     }
@@ -108,7 +121,8 @@ func currentUpdateState() -> UpdateState {
     let info = InstallInfo.load()
     return updateState(info,
                        sourceChangedAt: info.flatMap { newestSourceChange(repo: $0.repo) },
-                       toolsPresent: buildToolsPresent())
+                       toolsPresent: buildToolsPresent(),
+                       brewManaged: installedByHomebrew())
 }
 
 func updateMenuTitle(_ state: UpdateState, now: Date) -> String {
@@ -117,6 +131,8 @@ func updateMenuTitle(_ state: UpdateState, now: Date) -> String {
         return "ล่าสุดแล้ว (\(version) · \(build))"
     case let .available(since):
         return "ติดตั้งอัปเดต — โค้ดแก้เมื่อ \(ageText(now.timeIntervalSince(since))) ที่แล้ว"
+    case .managedByHomebrew:
+        return "อัปเดตด้วย brew upgrade --cask aiusage"
     case let .unavailable(reason):
         return reason
     }

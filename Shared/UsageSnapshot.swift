@@ -145,6 +145,10 @@ struct UsageItem: Codable, Identifiable, Hashable {
 struct UsageSnapshot: Codable {
     var generated: Date
     var items: [UsageItem]
+    /// เอนจินเปิด live usage อยู่จริงหรือเปล่ารอบล่าสุด — สวิตช์อยู่ได้สองที่
+    /// (UserDefaults ของแอป กับ config.json ของเอนจิน) หน้าตั้งค่าจึงต้องถาม
+    /// ผลลัพธ์จริง ไม่ใช่เดาจากฝั่งเดียว · nil = snapshot เก่าก่อนมีฟิลด์นี้
+    var liveUsage: Bool?
 
     static let empty = UsageSnapshot(generated: .distantPast, items: [])
 

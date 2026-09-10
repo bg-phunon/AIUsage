@@ -63,6 +63,8 @@ struct SettingsView: View {
                     Divider()
                     tagPositionToggle
                     Divider()
+                    liveUsageSection
+                    Divider()
                     designStylePicker
                 }
             }
@@ -124,12 +126,40 @@ struct SettingsView: View {
                       subtitle: "ปิดแล้วป้ายจะอยู่ข้างโลโก้แทน",
                       isOn: Binding(get: { prefs.tagBelowLogo },
                                     set: { prefs.setTagBelowLogo($0) }))
+            toggleRow(title: "เตือนตอนใกล้ชนลิมิต",
+                      subtitle: "เด้งครั้งเดียวต่อถังต่อขั้น ที่ 80% และ 95%",
+                      isOn: Binding(get: { prefs.notifyNearLimit },
+                                    set: { prefs.setNotifyNearLimit($0)
+                                             if $0 { LimitNotifier().requestPermission() } }))
             toggleRow(title: "เปิดเองตอนเข้าระบบ",
                       subtitle: "ขึ้นบนแถบเมนูทันทีที่เข้าเครื่อง ไม่ต้องเปิดแอปเอง",
                       isOn: Binding(get: { prefs.launchAtLogin },
                                     set: { prefs.setLaunchAtLogin($0)
                                              LaunchAtLogin.set($0) }))
         }
+    }
+
+    /// % ทางการจาก endpoint ของ Anthropic — ปิดไว้เป็นค่าเริ่มต้นสำหรับเครื่องใหม่
+    ///
+    /// เปิดแล้วเอนจินจะอ่าน OAuth token ของ Claude Code จาก Keychain ยิงไปที่
+    /// api.anthropic.com แล้วเขียน token ที่ถูก rotate กลับลง Keychain item เดิม
+    /// นั่นคือการแตะ credential ของผู้ใช้ จึงต้องบอกให้ครบก่อน ไม่ใช่เปิดเงียบๆ
+    ///
+    /// สถานะที่โชว์มาจาก snapshot (ผลจริงรอบล่าสุด) ไม่ใช่จาก UserDefaults ฝั่งเดียว
+    /// เพราะเครื่องที่ใช้มาก่อนมีสวิตช์นี้เก็บค่าไว้ใน config.json ของเอนจิน
+    private var liveUsageSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            toggleRow(title: "ถาม % ทางการจาก Anthropic",
+                      subtitle: "ปิดอยู่ยังมี % ให้ดู แต่มาจาก log ในเครื่องแทน",
+                      isOn: Binding(get: { prefs.liveUsage ?? model.snapshot.liveUsage ?? false },
+                                    set: { prefs.setLiveUsage($0) }))
+            Text("อ่าน OAuth token ของ Claude Code จาก Keychain · คุยกับ "
+                 + "api.anthropic.com เท่านั้น · เขียน token ที่ระบบหมุนใหม่กลับที่เดิม")
+                .font(.system(size: 10)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 14)
+        }
+        .padding(.bottom, 8)
     }
 
     private func toggleRow(title: String, subtitle: String, isOn: Binding<Bool>) -> some View {
