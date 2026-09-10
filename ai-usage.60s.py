@@ -554,14 +554,25 @@ def codex_stats(codex_dir):
                 rl = payload.get("rate_limits") or info.get("rate_limits")
                 if not isinstance(rl, dict):
                     continue
+                limit_id = rl.get("limit_id")
                 for slot in ("primary", "secondary"):
                     win = rl.get(slot)
                     if not isinstance(win, dict):
                         continue  # ก้อนที่ไม่มีหน้าต่าง ไม่ใช่คำประกาศว่า "ไม่มีลิมิตแล้ว"
                     cur = windows.get(slot)
-                    if cur is None or (ts is not None
-                                       and (cur["ts"] is None or ts > cur["ts"])):
-                        windows[slot] = {"win": win, "ts": ts}
+                    if cur is None:
+                        cur = {"win": win, "ts": ts, "limitId": limit_id, "seen": []}
+                        windows[slot] = cur
+                    elif ts is not None and (cur["ts"] is None or ts > cur["ts"]):
+                        cur["win"], cur["ts"] = win, ts
+                        if limit_id != cur.get("limitId"):
+                            cur["limitId"], cur["seen"] = limit_id, []
+                    # ประวัติไว้ดูว่าหน้าต่างเดินจริงไหม — เก็บเฉพาะถังใบเดียวกัน
+                    # ถังของแผนเก่ากับแผนใหม่เป็นคนละหน้าต่าง เอามาปนกันไม่ได้
+                    if limit_id == cur.get("limitId"):
+                        end = window_end(win, ts)
+                        if ts is not None and end is not None:
+                            cur["seen"].append((ts, end))
         except OSError:
             continue
         finally:
@@ -572,8 +583,9 @@ def codex_stats(codex_dir):
 SHORT_WINDOW_MINUTES = 400  # เกินนี้ถือเป็นหน้าต่างยาว (สัปดาห์) ไม่ใช่บล็อก 5 ชม.
 
 
-def window_from_limit(win, base_ts):
-    """หน้าต่างหนึ่งอันจาก rate_limits ของ Codex
+def window_end(win, base_ts):
+    """เวลาสิ้นสุดของหน้าต่าง — แยกจาก window_from_limit เพราะการเฝ้าดูว่าหน้าต่าง
+    เดินจริงไหม ไม่ต้องรอให้มี used_percent
 
     เวลารีเซ็ตมาได้สามแบบ: resets_at (epoch สัมบูรณ์ — รูปที่ Codex ใช้ตอนนี้),
     resets_in_seconds (รูปเก่า นับจากเวลาของ record) หรือไม่บอกเลย ถ้าไม่บอก
@@ -582,22 +594,72 @@ def window_from_limit(win, base_ts):
     """
     if not isinstance(win, dict):
         return None
+    mins = win.get("window_minutes", win.get("windowMinutes"))
+    resets_at = win.get("resets_at", win.get("resetsAt"))
+    resets_in = win.get("resets_in_seconds", win.get("resetsInSeconds"))
+    if isinstance(resets_at, (int, float)):
+        return datetime.fromtimestamp(float(resets_at), timezone.utc)
+    if resets_in is not None and base_ts:
+        return base_ts + timedelta(seconds=float(resets_in))
+    if mins and base_ts:
+        return base_ts + timedelta(minutes=float(mins))
+    return None
+
+
+# ต้องเห็นห่างกันอย่างน้อยเท่านี้ก่อนจะกล้าฟันธง — ถามหน้าต่างจริงสองครั้งห่างกัน
+# ไม่กี่วินาทีก็ได้คำตอบ "เหลือเท่าเดิม" โดยไม่ได้แปลว่ามันไม่เดิน
+PLACEHOLDER_MIN_SPAN_MINUTES = 15
+# เวลาผ่านไป span นาที หน้าต่างจริงต้องเหลือน้อยลงราว span นาทีเท่ากัน ถ้าลดไม่ถึง
+# ครึ่งของเวลาที่ผ่านไป แปลว่าเส้นตายถูกเลื่อนตามนาฬิกา ไม่ใช่ปักไว้กับที่
+#
+# วัดแบบนี้ไม่ต้องรอให้หน้าต่างหมดอายุ ซึ่งจำเป็นกับหน้าต่างสัปดาห์ — กฎที่ขอเห็น
+# ครึ่งหนึ่งของหน้าต่างก่อนแปลว่าต้องเฝ้าดู 3 วันครึ่งถึงจะรู้ว่ามันปลอม
+PLACEHOLDER_MAX_DRIFT = 0.5
+
+
+def window_never_elapses(observations, window_minutes):
+    """จริงเมื่อหน้าต่างตอบว่า "เหลืออีกเต็มจำนวน" ทุกครั้งที่ถูกถาม
+
+    เคสจริง 2026-09-10: หลังเปลี่ยนแผน Codex ออก limit_id ใหม่ (`codex_bengalfox`
+    / GPT-5.3-Codex-Spark) ที่รายงาน used_percent 0.0 ค้างตลอด 129 record ใน
+    5 ชั่วโมงครึ่งที่ใช้ไป 17 ล้าน token ตัวแยกที่ชัดกว่าตัวเลข % คือเวลารีเซ็ต:
+
+        codex (ถังจริง)   resets_at คงที่  → เหลือ 290.5 → 289.6 → 288.9 นาที
+        codex_bengalfox   resets_at ไหลขึ้น → เหลือ 299.8 → 299.4 → 299.8 นาที
+
+    เทียบ "เวลาที่ผ่านไป" กับ "เวลาที่เหลือลดลง" แทนการรอให้หน้าต่างหมดอายุ —
+    หน้าต่างสัปดาห์ของถังปลอมจึงถูกจับได้ในไม่กี่สิบนาที ไม่ต้องรอสามวันครึ่ง
+
+    หน้าต่างที่ไม่มีวันหมดคือหน้าต่างที่ไม่มีอยู่จริง เอา 0% ของมันไปวาดเป็นแถบทึบ
+    เท่ากับบอกผู้ใช้ว่า "ยังไม่ได้ใช้เลย" ทั้งที่ความจริงคือ "ไม่มีใครนับให้"
+
+    observations = [(ts ของ record, เวลาสิ้นสุดที่ record นั้นอ้าง)]
+    """
+    if not window_minutes or len(observations) < 2:
+        return False
+    pairs = [(ts, end) for ts, end in observations if ts is not None and end is not None]
+    if len(pairs) < 2:
+        return False
+    stamps = [ts for ts, _ in pairs]
+    span = (max(stamps) - min(stamps)).total_seconds() / 60.0
+    if span < PLACEHOLDER_MIN_SPAN_MINUTES:
+        return False   # ยังดูไม่นานพอ — ห้ามด่วนสรุปว่าถังนี้ใช้ไม่ได้
+    remaining = [(end - ts).total_seconds() / 60.0 for ts, end in pairs]
+    return (max(remaining) - min(remaining)) < span * PLACEHOLDER_MAX_DRIFT
+
+
+def window_from_limit(win, base_ts):
+    """หน้าต่างหนึ่งอันจาก rate_limits ของ Codex"""
+    if not isinstance(win, dict):
+        return None
     pct = win.get("used_percent", win.get("usedPercent"))
     if pct is None:
         return None
     mins = win.get("window_minutes", win.get("windowMinutes"))
-    resets_at = win.get("resets_at", win.get("resetsAt"))
-    resets_in = win.get("resets_in_seconds", win.get("resetsInSeconds"))
-    end = None
-    if isinstance(resets_at, (int, float)):
-        end = datetime.fromtimestamp(float(resets_at), timezone.utc)
-    elif resets_in is not None and base_ts:
-        end = base_ts + timedelta(seconds=float(resets_in))
-    elif mins and base_ts:
-        end = base_ts + timedelta(minutes=float(mins))
     label = ("5 ชม." if mins and mins <= SHORT_WINDOW_MINUTES
              else ("สัปดาห์" if mins else "หน้าต่าง"))
-    return {"pct": float(pct), "end": end, "label": label, "minutes": mins}
+    return {"pct": float(pct), "end": window_end(win, base_ts),
+            "label": label, "minutes": mins}
 
 
 def codex_fields(cs, now):
@@ -617,6 +679,9 @@ def codex_fields(cs, now):
         win = window_from_limit(entry.get("win"), entry.get("ts"))
         if win is None:
             continue
+        # ช่องเปล่าที่ตอบว่า "เหลืออีกเต็มจำนวน" ตลอด — มีตัวเลขก็จริงแต่ไม่ใช่การวัด
+        if window_never_elapses(entry.get("seen") or [], win["minutes"]):
+            win = dict(win, placeholder=True)
         key = "week" if (win["minutes"] or 0) > SHORT_WINDOW_MINUTES else "short"
         cur, ts = picked.get(key), entry.get("ts")
         if cur is None or (ts is not None and (cur[0] is None or ts > cur[0])):
@@ -624,6 +689,8 @@ def codex_fields(cs, now):
 
     def resolved(w):
         """เลขที่ยังยืนยันได้ — หน้าต่างหมุนไปแล้วห้ามโชว์ของเก่าเป็นเลขสด"""
+        if w.get("placeholder"):
+            return None, "unsure"   # ไม่มีใครนับให้ ตอบไม่ได้ ห้ามอ่านเป็นศูนย์
         if w["end"] is None or now < w["end"]:
             return w["pct"], "valid"
         last = cs.get("lastActivity")
@@ -640,15 +707,16 @@ def codex_fields(cs, now):
         out["weekPct"], out["weekConfidence"] = resolved(week[1])
         # แถว 7d มีเวลารีเซ็ตของตัวเอง — ช่อง resetAt ช่องเดียวถูกจองให้ 5h ที่มีเลข
         # อยู่แล้ว เวลาของสัปดาห์จึงเคยหายไปทั้งที่ log บอกมาครบ (เคสจริง 2026-08-31)
-        out["weekResetAt"] = week[1]["end"]
+        out["weekResetAt"] = None if week[1].get("placeholder") else week[1]["end"]
         if not short:
             out["window"] = week[1]["label"]
     # เวลารีเซ็ตเกาะแถวที่มีเลขจริง — UI ตัดสินจาก pct == nil ต้องเลือกให้ตรงกัน
-    if short and out["pct"] is not None:
+    # นาฬิกาที่ไม่มีวันเดินถึงศูนย์ไม่ควรขึ้นจอ — หน้าต่างปลอมจึงไม่ให้เวลารีเซ็ตเลย
+    if short and out["pct"] is not None and not short[1].get("placeholder"):
         out["resetAt"] = short[1]["end"]
-    elif week:
+    elif week and not week[1].get("placeholder"):
         out["resetAt"] = week[1]["end"]
-    elif short:
+    elif short and not short[1].get("placeholder"):
         out["resetAt"] = short[1]["end"]
     return out
 
