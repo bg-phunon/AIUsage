@@ -6,6 +6,7 @@ null ทั้งคู่ — โค้ดเดิมหยิบก้อน�
 ทั้งที่โควตายังเต็มและยังไม่ถึงเวลารีเซ็ต (6237 record มีแค่ 6 ก้อนที่ว่างแบบนี้)
 """
 
+import builtins
 import importlib.util
 import json
 import os
@@ -72,6 +73,53 @@ class CodexDir:
 
     def __exit__(self, *exc):
         self.tmp.cleanup()
+
+
+class _CountingFile:
+    """ห่อไฟล์จริงไว้เพื่อนับไบต์ที่ถูกอ่าน — ที่เหลือส่งต่อให้ของเดิมหมด"""
+
+    def __init__(self, fh, counter):
+        self._fh = fh
+        self._counter = counter
+
+    def read(self, *a, **kw):
+        chunk = self._fh.read(*a, **kw)
+        self._counter.total += len(chunk)
+        return chunk
+
+    def __getattr__(self, name):
+        return getattr(self._fh, name)
+
+    def __iter__(self):
+        # โค้ดเดิมไล่บรรทัดด้วย for line in fh ไม่ได้เรียก read() เลย
+        # ถ้าไม่นับตรงนี้ด้วย เทสต์จะผ่านทั้งที่ยังสแกนทั้งไฟล์อยู่
+        for line in self._fh:
+            self._counter.total += len(
+                line if isinstance(line, bytes) else line.encode("utf-8", "ignore"))
+            yield line
+
+    def __enter__(self):
+        self._fh.__enter__()
+        return self
+
+    def __exit__(self, *exc):
+        return self._fh.__exit__(*exc)
+
+
+class _CountingOpen:
+    """นับไบต์ที่อ่านจริงในบล็อก — หลักฐานว่าไม่ได้สแกนไฟล์ทั้งก้อน"""
+
+    def __init__(self):
+        self.total = 0
+
+    def __enter__(self):
+        self._saved = builtins.open
+        builtins.open = lambda *a, **kw: _CountingFile(self._saved(*a, **kw), self)
+        return self
+
+    def __exit__(self, *exc):
+        builtins.open = self._saved
+        return False
 
 
 class StatsRetentionTest(unittest.TestCase):
@@ -273,6 +321,92 @@ class RegressionOfTheDisappearingNumberTest(unittest.TestCase):
                          "โควตาเต็มแล้วเลขหายจากจอ ทั้งที่ยังไม่ถึงเวลารีเซ็ต")
         self.assertEqual(out["weekConfidence"], "valid")
         self.assertEqual(out["resetAt"], reset)
+
+
+class ReverseLineReaderTest(unittest.TestCase):
+    """อ่านบรรทัดจากท้ายไฟล์ — ต้องได้บรรทัดเดิมครบ แค่กลับลำดับ"""
+
+    def lines(self, text, chunk_size):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "x.jsonl")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            return list(engine.iter_lines_reverse(path, chunk_size=chunk_size))
+
+    def test_yields_lines_newest_first(self):
+        self.assertEqual(self.lines("a\nb\nc\n", 1 << 20), ["c", "b", "a"])
+
+    def test_last_line_without_newline_is_not_dropped(self):
+        """rollout ที่กำลังถูกเขียนอยู่มักไม่มี \\n ปิดท้าย — บรรทัดสดสุดอยู่ตรงนั้น"""
+        self.assertEqual(self.lines("a\nb\nc", 1 << 20), ["c", "b", "a"])
+
+    def test_lines_split_across_chunk_boundaries_stay_whole(self):
+        """ชิ้นแรกของแต่ละ chunk ถูกตัดกลางบรรทัด ต้องต่อกับ chunk ก่อนหน้า"""
+        text = "".join("line-%04d\n" % i for i in range(500))
+        self.assertEqual(self.lines(text, 7),
+                         ["line-%04d" % i for i in reversed(range(500))])
+
+    def test_multibyte_characters_split_across_chunks_survive(self):
+        """ตัวอักษรไทยกินหลายไบต์ — ห้ามตัดกลางตัวแล้วได้ขยะ"""
+        text = "".join("บรรทัด-%03d\n" % i for i in range(200))
+        self.assertEqual(self.lines(text, 5),
+                         ["บรรทัด-%03d" % i for i in reversed(range(200))])
+
+    def test_empty_file_yields_nothing(self):
+        self.assertEqual(self.lines("", 1 << 20), [])
+
+    def test_blank_lines_are_skipped(self):
+        self.assertEqual(self.lines("a\n\n\nb\n", 1 << 20), ["b", "a"])
+
+
+class ReadBudgetTest(unittest.TestCase):
+    """ไฟล์ session ที่เปิดค้างไว้เป็นเดือนโตถึงระดับกิกะไบต์ — ห้ามสแกนทั้งก้อน
+
+    เคสจริง 2026-09-10: rollout ของ session วันที่ 15 ส.ค. ยังถูกเขียนต่อจนโต
+    2.4 GB เอนจินอ่านทั้งไฟล์ทุก 60 วินาที ปลายทางคือชน timeout 45 วินาทีของแอป
+    แล้วแถบ Codex หายไปทั้งแถว rollout เรียงตามเวลาอยู่แล้ว พอไล่จากท้ายมาเจอ
+    record ที่เก่ากว่าหน้าต่างสัปดาห์ก็หยุดได้ทันที ที่เหลือข้างหน้าเก่ากว่านั้นหมด
+    """
+
+    def setUp(self):
+        self.saved_now = engine.now_utc
+        engine.now_utc = lambda: NOW
+
+    def tearDown(self):
+        engine.now_utc = self.saved_now
+
+    @staticmethod
+    def _bulk(count, age_days):
+        """record ถ่วงน้ำหนักให้ไฟล์ใหญ่พอที่ chunk เดียวจะอ่านไม่หมด"""
+        return [record(NOW - timedelta(days=age_days, minutes=i),
+                       limits(primary=window(1.0, 10080)), tokens=7)
+                for i in range(count)]
+
+    def test_records_older_than_the_week_are_never_read(self):
+        old = self._bulk(12000, age_days=30)
+        fresh = [record(NOW - timedelta(days=1),
+                        limits(primary=window(42.0, 10080,
+                                              resets_at=NOW + timedelta(days=3))),
+                        tokens=900)]
+        with CodexDir(old + fresh) as path:
+            target = os.path.join(path, "sessions", "2026", "08", "21", "rollout-test.jsonl")
+            size = os.path.getsize(target)
+            read = _CountingOpen()
+            with read:
+                cs = engine.codex_stats(path)
+
+        self.assertGreater(size, 4 << 20, "ไฟล์ทดสอบเล็กเกินกว่าจะพิสูจน์อะไรได้")
+        self.assertLess(read.total, size // 2,
+                        "ยังอ่านทั้งไฟล์อยู่ — ไฟล์ระดับกิกะไบต์จะไปชน timeout ของแอป")
+        self.assertEqual(cs["windows"]["primary"]["win"]["used_percent"], 42.0)
+
+    def test_tokens_outside_the_week_do_not_leak_into_the_total(self):
+        """หยุดที่ขอบสัปดาห์แล้วยอด token ต้องเป็นของในหน้าต่างล้วน"""
+        with CodexDir(self._bulk(20, age_days=30)
+                      + [record(NOW - timedelta(days=1), limits(), tokens=900)]) as path:
+            cs = engine.codex_stats(path)
+        self.assertEqual(cs["tokens"], 900)
+        self.assertEqual(cs["lastActivity"], NOW - timedelta(days=1))
 
 
 if __name__ == "__main__":

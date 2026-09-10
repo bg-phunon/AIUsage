@@ -35,7 +35,10 @@ CFG_PATH = os.path.join(CFG_DIR, "config.json")
 STATE_PATH = os.path.join(CFG_DIR, "state.json")
 SELF = os.path.abspath(__file__)
 
+# ในโปรเจกต์แพ็กเกจอยู่ที่ engine/aiusage ส่วนใน .app ที่ติดตั้งแล้วมันถูกก็อป
+# ไปวางข้างสคริปต์เป็น Resources/aiusage เพื่อไม่ให้ engine/tests ติดไปด้วย
 sys.path.insert(0, os.path.join(os.path.dirname(SELF), "engine"))
+sys.path.insert(0, os.path.dirname(SELF))
 from aiusage import buckets as _buckets  # noqa: E402
 from aiusage import liveusage as _liveu  # noqa: E402
 from aiusage import utilization as _util  # noqa: E402
@@ -427,13 +430,18 @@ def calibrate_budget5h(entries, hits):
     return samples[len(samples) // 2] if samples else None
 
 
-def account_utilization(config_dir):
+def account_utilization(config_dir, live_enabled=True):
     """สด → สดล่าสุดที่เคยได้ → แคชของ Claude Code — อันไหนใหม่สุดชนะ
 
     เน็ตสะดุดรอบเดียวเคยทำเลขกะพริบหาย: live พลาดแล้วดิ่งไปแคชเก่าที่
     unsure ทันที ทั้งที่ 60 วิก่อนเพิ่งได้ตัวเลขทางการ — จำผลสดล่าสุดไว้
     เลขจะค่อยๆ เสื่อมเป็น lower_bound ตามอายุจริง ไม่ใช่ดับวูบ
+
+    ปิด live = ไม่แตะ Keychain ไม่ออกเน็ต และไม่ใช้แคชที่งอกจาก live ด้วย
+    เหลือเฉพาะแคชที่ Claude Code เขียนเองซึ่งไม่เกี่ยวกับ credential
     """
+    if not live_enabled:
+        return _util.read_utilization(config_dir)
     live = _liveu.fetch_utilization(config_dir)
     if live is not None:
         return live
@@ -442,7 +450,7 @@ def account_utilization(config_dir):
     return max(candidates, key=lambda u: u.fetched_at, default=None)
 
 
-def claude_account_stats(acc):
+def claude_account_stats(acc, live_enabled=False):
     since = now_utc() - timedelta(days=WEEK_DAYS)
     entries = claude_entries(acc["dir"], since)
     blk = current_block(entries)
@@ -455,7 +463,7 @@ def claude_account_stats(acc):
         "models": sorted({m.split("-")[1] for _, _, m in entries[-40:] if m.count("-") >= 1}),
         "plan": account_plan(acc["dir"]),
         "budget5hAuto": calibrate_budget5h(entries, hits),
-        "utilization": account_utilization(acc["dir"]),
+        "utilization": account_utilization(acc["dir"], live_enabled),
         "lastActivity": entries[-1][0] if entries else None,
         "costKnown": costs_known(entries),
     }
@@ -467,6 +475,35 @@ def claude_account_stats(acc):
 
 
 # ── อ่าน rollout ของ Codex ──────────────────────────────────────────────────
+def iter_lines_reverse(path, chunk_size=1 << 20):
+    """บรรทัดจากท้ายไฟล์ไล่ขึ้นหัว — อ่านเท่าที่ผู้เรียกขอ ไม่ต้องแตะทั้งก้อน
+
+    rollout เรียงตามเวลาอยู่แล้ว ผู้เรียกจึงหยุดได้ทันทีที่เจอ record ที่เก่ากว่า
+    หน้าต่างสัปดาห์ session ที่เปิดค้างไว้เป็นเดือนโตได้ถึงระดับกิกะไบต์ (เคสจริง
+    2026-09-10: rollout ของวันที่ 15 ส.ค. ยังถูกเขียนต่อจนโต 2.4 GB) การสแกน
+    ทั้งไฟล์ทุก 60 วินาทีมีปลายทางเดียวคือชน timeout 45 วินาทีของแอป แล้วแถบ
+    Codex หายไปทั้งแถว
+
+    ตัดบรรทัดบนไบต์แล้วค่อย decode — 0x0A ไม่เคยโผล่กลางตัวอักษร UTF-8 ชิ้นที่
+    ถูก chunk หั่นกลางบรรทัดจึงรอต่อกับ chunk ก่อนหน้าได้อย่างปลอดภัย
+    """
+    with open(path, "rb") as fh:
+        fh.seek(0, os.SEEK_END)
+        pos = fh.tell()
+        tail = b""
+        while pos > 0:
+            step = min(chunk_size, pos)
+            pos -= step
+            fh.seek(pos)
+            parts = (fh.read(step) + tail).split(b"\n")
+            tail = parts.pop(0)
+            for part in reversed(parts):
+                if part:
+                    yield part.decode("utf-8", "ignore")
+        if tail:
+            yield tail.decode("utf-8", "ignore")
+
+
 def codex_stats(codex_dir):
     """Codex เขียน rate_limits ที่เป็นเปอร์เซ็นต์จริงลง rollout log — ใช้ค่านั้นเลย
 
@@ -492,11 +529,11 @@ def codex_stats(codex_dir):
         try:
             if datetime.fromtimestamp(os.path.getmtime(path), timezone.utc) < week_cut:
                 break
-            fh = open(path, "r", encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        with fh:
-            for line in fh:
+        lines = iter_lines_reverse(path)
+        try:
+            for line in lines:
                 if "token_count" not in line:
                     continue
                 try:
@@ -504,11 +541,13 @@ def codex_stats(codex_dir):
                 except ValueError:
                     continue
                 ts = parse_ts(rec.get("timestamp"))
+                if ts is not None and ts < week_cut:
+                    break  # ไล่จากท้ายมา ที่เหลือข้างหน้าเก่ากว่านี้ทั้งหมด
                 payload = rec.get("payload") or rec
                 info = payload.get("info") or {}
                 last = info.get("last_token_usage") or {}
                 used = int(last.get("total_tokens") or 0)
-                if ts and ts >= week_cut:
+                if ts:
                     tokens += used
                     if used and (last_activity is None or ts > last_activity):
                         last_activity = ts
@@ -523,6 +562,10 @@ def codex_stats(codex_dir):
                     if cur is None or (ts is not None
                                        and (cur["ts"] is None or ts > cur["ts"])):
                         windows[slot] = {"win": win, "ts": ts}
+        except OSError:
+            continue
+        finally:
+            lines.close()
     return {"tokens": tokens, "windows": windows, "lastActivity": last_activity}
 
 
@@ -615,6 +658,8 @@ def default_config():
     return {
         "titleMode": "worst",  # worst | all | compact
         "showCost": True,
+        # ต้องเปิดเอง — ดูเหตุผลใน engine/tests/test_liveconsent.py
+        "liveUsage": False,
         "claude": [
             {
                 "label": a["label"],
@@ -641,6 +686,12 @@ def load_config():
         cfg = default_config()
         write_json(CFG_PATH, cfg)
         return cfg
+    # config ที่มีอยู่ก่อนคีย์นี้เกิด = เคยรัน live มาแล้วโดยเจ้าของเครื่องยอมรับ
+    # ปิดให้เขาเงียบๆ คือการพังฟีเจอร์ที่ใช้อยู่ ส่วนคนที่ตั้ง False ไว้เองห้ามแตะ
+    changed = False
+    if "liveUsage" not in cfg:
+        cfg["liveUsage"] = True
+        changed = True
     # เจอ account ใหม่ที่เพิ่ง login ก็เติมเข้า config ให้เอง
     known = {os.path.realpath(a.get("dir", "")) for a in cfg.get("claude", [])}
     added = False
@@ -651,7 +702,7 @@ def load_config():
                  "budget5h": None, "budgetWeek": None, "enabled": True}
             )
             added = True
-    if added:
+    if added or changed:
         write_json(CFG_PATH, cfg)
     return cfg
 
@@ -919,9 +970,34 @@ def bucket_rows(acc, table, qwen_anchor=None):
     return out
 
 
-def collect():
+def split_live_usage_flag(argv):
+    """แยก --live-usage=0|1 ออกจาก argv — คืน (argv ที่เหลือ, override หรือ None)
+
+    แอปเก็บสวิตช์ความยินยอมไว้ใน UserDefaults ของตัวเองแล้วส่งมาทาง argv แทนการ
+    เขียน config.json เพราะเอนจินก็เขียนไฟล์นั้นเองตอนเจอบัญชีใหม่ สองฝั่งเขียน
+    พร้อมกันเมื่อไหร่จะมีฝั่งหนึ่งหาย และการหายของสวิตช์นี้แปลว่ามันเงียบๆ กลับไป
+    แตะ Keychain ได้เอง
+    """
+    override, rest = None, []
+    for arg in argv:
+        if arg.startswith("--live-usage="):
+            override = arg.split("=", 1)[1] not in ("0", "false", "no", "")
+        else:
+            rest.append(arg)
+    return rest, override
+
+
+def effective_live_usage(cfg, override=None):
+    """สวิตช์จากแอปชนะไฟล์ config — ไม่มีทั้งคู่ถือว่าปิด"""
+    if override is not None:
+        return override
+    return bool(cfg.get("liveUsage", False))
+
+
+def collect(live_override=None):
     """รวบรวมสถานะทุกบัญชีเป็นโครงสร้างเดียว ใช้ได้ทั้งเมนูบาร์และ widget"""
     cfg = load_config()
+    live_enabled = effective_live_usage(cfg, live_override)
     state = read_json(STATE_PATH, {})
     items = []
     bucket_table = _buckets.load_bucket_table()
@@ -931,7 +1007,7 @@ def collect():
         if not acc.get("enabled", True):
             continue
         try:
-            st = claude_account_stats(acc)
+            st = claude_account_stats(acc, live_enabled)
         except Exception as exc:  # noqa: BLE001
             items.append(with_contract({
                 "group": "Claude Code", "label": acc["label"], "window": "5 ชม.",
@@ -1040,12 +1116,15 @@ def collect():
             "profile": None,
         }))
 
+    # บอกสถานะจริงกลับไปให้ UI — สวิตช์อยู่ได้สองที่ (UserDefaults ของแอปกับ
+    # config.json) หน้าตั้งค่าจึงเดาเองไม่ได้ว่าตอนนี้เปิดอยู่หรือเปล่า
     return {"generated": now_utc().isoformat().replace("+00:00", "Z"),
+            "liveUsage": live_enabled,
             "items": [with_contract(item) for item in items]}
 
 
-def write_snapshot(path=None):
-    data = collect()
+def write_snapshot(path=None, live_override=None):
+    data = collect(live_override)
     target = path or SNAPSHOT_PATH
     if not data["items"]:
         old = read_json(target, None)
@@ -1072,16 +1151,17 @@ def action(text, args, indent="--"):
 
 
 def main():
-    if len(sys.argv) > 1 and sys.argv[1] == "--snapshot":
-        target = sys.argv[2] if len(sys.argv) > 2 else None
-        data = write_snapshot(target)
+    argv, live_override = split_live_usage_flag(sys.argv[1:])
+    if argv and argv[0] == "--snapshot":
+        target = argv[1] if len(argv) > 1 else None
+        data = write_snapshot(target, live_override)
         print("เขียน snapshot %d รายการ → %s" % (len(data["items"]), target or SNAPSHOT_PATH))
         return
-    if len(sys.argv) > 1 and sys.argv[1] == "--json":
-        print(json.dumps(collect(), ensure_ascii=False, indent=2))
+    if argv and argv[0] == "--json":
+        print(json.dumps(collect(live_override), ensure_ascii=False, indent=2))
         return
-    if len(sys.argv) > 1 and sys.argv[1].startswith("--"):
-        handle_action(sys.argv[1:])
+    if argv and argv[0].startswith("--"):
+        handle_action(argv)
         return
 
     cfg = load_config()
@@ -1094,7 +1174,7 @@ def main():
         if not acc.get("enabled", True):
             continue
         try:
-            st = claude_account_stats(acc)
+            st = claude_account_stats(acc, effective_live_usage(cfg))
         except Exception as e:  # noqa: BLE001 — เมนูต้องไม่พังทั้งอัน
             claude_rows.append((acc["label"], None, ["อ่านไม่ได้: %s" % e], acc, None, False))
             continue
