@@ -1062,6 +1062,63 @@ def effective_live_usage(cfg, override=None):
     return bool(cfg.get("liveUsage", False))
 
 
+def parse_codex_anchor(raw):
+    """จุดยึดโควตา Codex จากหน้า usage ของ OpenAI — พี่น้องกับ parse_qwen_anchor
+
+    หลังเปลี่ยนแผน rate_limits ในล็อกกลายเป็นช่องเปล่า (0% ค้าง เวลารีเซ็ตเลื่อนตาม
+    นาฬิกา) แต่หน้าเว็บยังบอกตัวเลขจริงอยู่ และเทียบกลับจาก token ก็ไม่ได้ เพราะ
+    อัตรา token ต่อ 1% ที่วัดจากล็อกของแผนเก่าไหลจาก 443k ลงไป 375k (คลาด ~15%)
+    แปลว่า % ที่ OpenAI นับไม่ได้ผูกกับ token ตรงๆ การเสกสูตรขึ้นมาเองจึงเป็นการเดา
+
+    ค่าที่จดมาเป็น lower bound แท้ๆ ของปัจจุบัน — โควตามีแต่ใช้เพิ่ม ไม่มีคืน
+    จนกว่าหน้าต่างจะรีเซ็ต ตรงกับ semantics "lower_bound" ที่ UI มีอยู่แล้ว
+
+    รูปแบบ (ทั้งสองหน้าต่างเป็น optional):
+        {"at": "...Z",
+         "session": {"usedPct": 12, "resetAt": "...Z"},
+         "weekly":  {"usedPct": 33, "resetAt": "...Z"}}
+    """
+    if not isinstance(raw, dict):
+        return None
+    at = parse_ts(raw.get("at"))
+    if at is None:
+        return None
+
+    def window(key):
+        w = raw.get(key)
+        if not isinstance(w, dict):
+            return None
+        used = w.get("usedPct")
+        reset = parse_ts(w.get("resetAt"))
+        # ไม่มีเวลารีเซ็ต = ไม่มีวันหมดอายุ ซึ่งคือสิ่งที่ window_never_elapses เพิ่งกันไว้
+        if not isinstance(used, (int, float)) or reset is None:
+            return None
+        return {"usedPct": float(used), "resetAt": reset}
+
+    session, weekly = window("session"), window("weekly")
+    if session is None and weekly is None:
+        return None
+    return {"at": at, "session": session, "weekly": weekly}
+
+
+def apply_codex_anchor(fields, anchor, now):
+    """เติมจุดยึดเฉพาะช่องที่ล็อกตอบไม่ได้ — เลขทางการชนะเสมอ"""
+    if anchor is None or now < anchor["at"]:
+        return fields
+    pairs = (("session", "pct", "confidence", "resetAt"),
+             ("weekly", "weekPct", "weekConfidence", "weekResetAt"))
+    for key, pct_key, conf_key, reset_key in pairs:
+        win = anchor.get(key)
+        if win is None or now >= win["resetAt"]:
+            continue          # หน้าต่างหมุนไปแล้ว ค่าที่จดไว้เป็นของรอบเก่า
+        if fields.get(pct_key) is not None:
+            continue          # OpenAI ตอบเองได้ ไม่ต้องพึ่งของที่จดมา
+        fields[pct_key] = min(100.0, win["usedPct"])
+        fields[conf_key] = "lower_bound"
+        fields[reset_key] = win["resetAt"]
+    return fields
+
+
 def collect(live_override=None):
     """รวบรวมสถานะทุกบัญชีเป็นโครงสร้างเดียว ใช้ได้ทั้งเมนูบาร์และ widget"""
     cfg = load_config()
@@ -1147,7 +1204,8 @@ def collect(live_override=None):
             cs = None
         if not cs:
             continue
-        cf = codex_fields(cs, now)
+        cf = apply_codex_anchor(codex_fields(cs, now),
+                                parse_codex_anchor(cfg.get("codexAnchor")), now)
         items.append(with_contract({
             "group": "Codex",
             "label": c.get("label", "Codex"),
@@ -1163,8 +1221,13 @@ def collect(live_override=None):
             "profile": None,
             # % ของ Codex มาจาก rate_limits ที่ OpenAI ส่งกลับมาเอง — เป็นทางการ
             # เท่ากับของ Anthropic ความมั่นใจจึงต้องเดินตามอายุหน้าต่างเหมือนกัน
-            "pctSource": "official" if (cf["pct"] is not None
-                                        or cf["weekPct"] is not None) else None,
+            # จุดยึดที่ผู้ใช้จดมาไม่ใช่ตัวเลขทางการ — lower_bound บอกที่มาไว้แล้ว
+            "pctSource": ("official"
+                          if ((cf["pct"] is not None and cf["confidence"] != "lower_bound")
+                              or (cf["weekPct"] is not None
+                                  and cf["weekConfidence"] != "lower_bound"))
+                          else ("anchor" if (cf["pct"] is not None
+                                             or cf["weekPct"] is not None) else None)),
             "confidence": cf["confidence"],
             "weekConfidence": cf["weekConfidence"],
             "weekResetAt": (cf["weekResetAt"].isoformat().replace("+00:00", "Z")
