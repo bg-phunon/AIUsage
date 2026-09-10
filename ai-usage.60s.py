@@ -559,25 +559,43 @@ def codex_stats(codex_dir):
                     win = rl.get(slot)
                     if not isinstance(win, dict):
                         continue  # ก้อนที่ไม่มีหน้าต่าง ไม่ใช่คำประกาศว่า "ไม่มีลิมิตแล้ว"
-                    cur = windows.get(slot)
-                    if cur is None:
-                        cur = {"win": win, "ts": ts, "limitId": limit_id, "seen": []}
-                        windows[slot] = cur
-                    elif ts is not None and (cur["ts"] is None or ts > cur["ts"]):
-                        cur["win"], cur["ts"] = win, ts
-                        if limit_id != cur.get("limitId"):
-                            cur["limitId"], cur["seen"] = limit_id, []
-                    # ประวัติไว้ดูว่าหน้าต่างเดินจริงไหม — เก็บเฉพาะถังใบเดียวกัน
-                    # ถังของแผนเก่ากับแผนใหม่เป็นคนละหน้าต่าง เอามาปนกันไม่ได้
-                    if limit_id == cur.get("limitId"):
-                        end = window_end(win, ts)
-                        if ts is not None and end is not None:
-                            cur["seen"].append((ts, end))
+                    # เก็บแยกรายถัง ไม่ยุบเหลือ "ใหม่สุดของช่องนี้" — สอง session ที่
+                    # รันพร้อมกันรายงานคนละถังได้ และตัวที่ใหม่กว่าไม่ได้แปลว่าดีกว่า
+                    bucket = windows.setdefault(slot, {}).setdefault(
+                        limit_id, {"win": win, "ts": ts, "limitId": limit_id, "seen": []})
+                    if ts is not None and (bucket["ts"] is None or ts > bucket["ts"]):
+                        bucket["win"], bucket["ts"] = win, ts
+                    end = window_end(win, ts)
+                    if ts is not None and end is not None:
+                        bucket["seen"].append((ts, end))
         except OSError:
             continue
         finally:
             lines.close()
-    return {"tokens": tokens, "windows": windows, "lastActivity": last_activity}
+    return {"tokens": tokens,
+            "windows": {slot: pick_live_window(buckets)
+                        for slot, buckets in windows.items() if buckets},
+            "lastActivity": last_activity}
+
+
+def pick_live_window(buckets):
+    """ถังที่ยังเดินจริงชนะถังที่ไม่มีวันหมด แม้ตัวหลังจะใหม่กว่า
+
+    เคสจริง 2026-09-10: อัปเดต Codex CLI แล้ว session ใหม่รายงาน limit_id "codex"
+    พร้อมเลขจริง แต่ session เก่าที่เปิดค้างมา 24 ชั่วโมงยังพ่น codex_bengalfox
+    (ช่องเปล่า) ต่อไปเรื่อยๆ record ของมันจึงใหม่กว่าเสมอ — กติกา "เอาใหม่สุด"
+    อย่างเดียวเลยได้ขยะทั้งที่ของดีอยู่ในมือแล้ว
+
+    ถ้าทุกถังเป็นช่องเปล่าก็คืนตัวใหม่สุดตามเดิม แล้วให้ codex_fields รายงานว่า
+    ตอบไม่ได้ — ไม่ใช่หน้าที่ของที่นี่จะตัดสินแทน
+    """
+    real, fake = [], []
+    for entry in buckets.values():
+        win = entry["win"]
+        mins = win.get("window_minutes", win.get("windowMinutes"))
+        (fake if window_never_elapses(entry["seen"], mins) else real).append(entry)
+    pool = real or fake
+    return max(pool, key=lambda e: e["ts"] or datetime.min.replace(tzinfo=timezone.utc))
 
 
 SHORT_WINDOW_MINUTES = 400  # เกินนี้ถือเป็นหน้าต่างยาว (สัปดาห์) ไม่ใช่บล็อก 5 ชม.

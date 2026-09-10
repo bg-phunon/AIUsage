@@ -135,5 +135,64 @@ class FieldsTest(unittest.TestCase):
         self.assertEqual(engine.codex_fields(cs, NOW)["pct"], 30.0)
 
 
+class StaleSessionTest(unittest.TestCase):
+    """session เก่าที่ยังค้างอยู่ต้องไม่กลบ session ใหม่ที่รายงานเลขจริง
+
+    เคสจริง 2026-09-10: อัปเดต Codex CLI แล้ว session ใหม่รายงาน limit_id "codex"
+    พร้อม 36% ของจริง แต่ session เก่าที่เปิดค้างมา 24 ชั่วโมงยังพ่น codex_bengalfox
+    (ช่องเปล่า) ออกมาเรื่อยๆ record ของมันจึงใหม่กว่าเสมอ — กติกา "เอาใหม่สุด"
+    อย่างเดียวเลยได้ขยะทั้งที่ของดีอยู่ในมือแล้ว
+    """
+
+    def setUp(self):
+        self.saved = engine.now_utc
+        engine.now_utc = lambda: NOW
+
+    def tearDown(self):
+        engine.now_utc = self.saved
+
+    @staticmethod
+    def rec(ts, limit_id, pct, minutes, resets_at):
+        return {"timestamp": ts.isoformat().replace("+00:00", "Z"),
+                "type": "event_msg",
+                "payload": {"type": "token_count",
+                            "info": {"last_token_usage": {"total_tokens": 10}},
+                            "rate_limits": {
+                                "limit_id": limit_id, "limit_name": None,
+                                "primary": {"used_percent": pct,
+                                            "window_minutes": minutes,
+                                            "resets_at": resets_at.timestamp()},
+                                "secondary": None}}}
+
+    def build(self):
+        """ถังจริงที่นับถอยหลัง ปนกับถังปลอมที่เลื่อนเส้นตายตามนาฬิกา และใหม่กว่า"""
+        fixed_end = NOW + timedelta(days=4)
+        rows = []
+        for i in range(20):
+            ts = NOW - timedelta(minutes=(20 - i) * 20)
+            rows.append(self.rec(ts, "codex", 36.0, 10080, fixed_end))
+            # ถังปลอมตามหลังมา 1 นาทีเสมอ — ใหม่กว่าทุกครั้ง
+            rows.append(self.rec(ts + timedelta(minutes=1), "codex_bengalfox", 0.0,
+                                 10080, ts + timedelta(days=7)))
+        return rows
+
+    def test_the_window_that_actually_counts_down_wins(self):
+        import json, os, tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            d = os.path.join(tmp, "sessions", "2026", "09", "10")
+            os.makedirs(d)
+            with open(os.path.join(d, "rollout-x.jsonl"), "w", encoding="utf-8") as fh:
+                for r in self.build():
+                    fh.write(json.dumps(r) + "\n")
+            cs = engine.codex_stats(tmp)
+        chosen = cs["windows"]["primary"]
+        self.assertEqual(chosen["limitId"], "codex",
+                         "ถังปลอมที่ใหม่กว่ากลบถังจริงที่ยังเดินอยู่")
+        self.assertEqual(chosen["win"]["used_percent"], 36.0)
+        out = engine.codex_fields(cs, NOW)
+        self.assertEqual(out["weekPct"], 36.0)
+        self.assertEqual(out["weekConfidence"], "valid")
+
+
 if __name__ == "__main__":
     unittest.main()
