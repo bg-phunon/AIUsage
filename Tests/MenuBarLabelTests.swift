@@ -64,8 +64,11 @@ final class MenuBarLabelTests: XCTestCase {
         XCTAssertTrue(segments.isEmpty, "ไม่แน่ใจ = ไม่มีเลข ไม่ใช่เลขมั่วๆ")
     }
 
-    /// บัญชี ccs ที่แคชโควตาเก่าจนไม่มี % — ต้องยังเห็นบนแถบเป็นขีดคู่ ไม่ใช่ล่องหน
+    /// บัญชี ccs ที่แคชโควตาเก่าจนไม่มี % — ต้องยังเห็นบนแถบ ไม่ใช่ล่องหน
     /// เห็นทุกบัญชีคือเหตุผลข้อแรกของแอปนี้
+    ///
+    /// เดิมช่องนี้เป็นขีด ตอนนี้เป็นจำนวน token — เจตนาเดิมคือ "ต้องไม่หายไป"
+    /// ขีดเป็นแค่วิธี ไม่ใช่เป้าหมาย และมันไม่บอกอะไรกับคนที่กำลังอยากรู้ว่าใช้ไปเท่าไหร่
     func testAccountWithTrafficButNoNumbersKeepsItsSlot() {
         var mooz = named("Claude Code", "mooz", pct: nil, weekPct: nil)
         mooz.confidence = "unsure"
@@ -75,8 +78,8 @@ final class MenuBarLabelTests: XCTestCase {
         let segments = menuBarSegments(snapshot: snap, now: now, wokeRecently: false,
                                        hidden: [], pinned: [])
         XCTAssertEqual(segments.map(\.id), ["Claude Code/default", "Claude Code/mooz"])
-        XCTAssertEqual(segments[1].top, "–")
-        XCTAssertNil(segments[1].bottom, "ไม่มีเลขเลย = ขีดเดียว ไม่ใช่ขีดคู่")
+        XCTAssertEqual(segments[1].top, "60M")
+        XCTAssertNil(segments[1].bottom, "ไม่มี % เลย = บรรทัดเดียว ไม่ใช่สองบรรทัด")
         XCTAssertEqual(segments.map(\.tag), ["de", "mo"], "โลโก้ซ้ำต้องมีป้ายบอกบัญชี")
     }
 
@@ -278,6 +281,66 @@ final class MenuBarLabelTests: XCTestCase {
         let snap = snapshot([named("Claude Code", "work", pct: 5, weekPct: 96,
                                    severity: "critical")])
         XCTAssertFalse(hasCritical(snapshot: snap, ids: []))
+    }
+
+    // MARK: - ถังที่ตอบ % ไม่ได้ แต่ยังมี traffic จริง
+
+    /// เคสจริง 2026-09-10: หลัง Codex เปลี่ยนแผน ถังใหม่ตอบ % ไม่ได้เลย (unsure
+    /// ทั้งสองหน้าต่าง) แต่ยังใช้ไป 91 ล้าน token — แถวต้องยังอยู่บนแถบเป็นขีด
+    /// ถังที่หายไปเงียบๆ แย่กว่าถังที่บอกว่า "ตอบไม่ได้" เพราะผู้ใช้จะนึกว่าแอปพัง
+    private func unmeasured(_ group: String, _ label: String, weekTokens: Int) -> UsageItem {
+        var it = UsageItem(group: group, label: label, window: "5 ชม.")
+        it.confidence = "unsure"
+        it.weekConfidence = "unsure"
+        it.weekTokens = weekTokens
+        it.tokens = weekTokens
+        it.local = false
+        return it
+    }
+
+    func testABucketWithNoPercentShowsWhatItCanStillMeasure() {
+        let snap = snapshot([unmeasured("Codex", "Codex", weekTokens: 91_904_145)])
+        let segments = menuBarSegments(snapshot: snap, now: now, wokeRecently: false)
+        XCTAssertEqual(segments.map(\.id), ["Codex/Codex"])
+        XCTAssertEqual(segments.first?.top, "92M",
+                       "ขีดเปล่าไม่บอกอะไรเลย จำนวน token คือสิ่งเดียวที่ยังวัดได้จริง")
+    }
+
+    /// หน่วยคือสิ่งเดียวที่กัน "92M" ไม่ให้ถูกอ่านเป็น "92%" — โหมดกระชับตัด % ทิ้ง
+    /// ตัวเลขเปล่าสองแบบจะหน้าตาเหมือนกันทันทีถ้าหน่วยหลุด
+    func testTheUnitSurvivesCompactMode() {
+        let snap = snapshot([unmeasured("Codex", "Codex", weekTokens: 91_904_145),
+                             named("Claude Code", "default", pct: 56, weekPct: 63)])
+        let segments = menuBarSegments(snapshot: snap, now: now, wokeRecently: false)
+        let compact = applyDensity(segments, .snug).segments
+        XCTAssertEqual(compact.first(where: { $0.id == "Codex/Codex" })?.top, "92M")
+        XCTAssertEqual(compact.first(where: { $0.id == "Claude Code/default" })?.top, "56",
+                       "ของที่เป็น % ยังถูกตัดเครื่องหมายตามเดิม")
+    }
+
+    func testSmallCountsReadInThousands() {
+        let snap = snapshot([unmeasured("Codex", "Codex", weekTokens: 4_600)])
+        XCTAssertEqual(menuBarSegments(snapshot: snap, now: now,
+                                       wokeRecently: false).first?.top, "5k")
+    }
+
+    /// ถังที่ตอบ % ไม่ได้ *และ* ไม่มี traffic ก็ยังไม่ควรกินที่ — แต่ถ้าหลุดมาถึงตรงนี้
+    /// (เช่นถูกปักหมุดไว้) ขีดยังเป็นคำตอบที่ซื่อสัตย์กว่าเลข 0 ที่อ่านว่า "ไม่ได้ใช้"
+    func testDashRemainsForABucketWithNothingToShow() {
+        XCTAssertEqual(barTokensText(0), "0")
+    }
+
+    func testItSurvivesThePinFilterToo() {
+        let snap = snapshot([unmeasured("Codex", "Codex", weekTokens: 91_904_145),
+                             named("Claude Code", "default", pct: 98, weekPct: 70)])
+        let segments = menuBarSegments(snapshot: snap, now: now, wokeRecently: false,
+                                       pinned: ["Codex/Codex", "Claude Code/default"])
+        XCTAssertEqual(segments.map(\.id), ["Codex/Codex", "Claude Code/default"])
+    }
+
+    func testASilentBucketWithNoTrafficStillDoesNotTakeSpace() {
+        let snap = snapshot([unmeasured("Codex", "Codex", weekTokens: 0)])
+        XCTAssertTrue(menuBarSegments(snapshot: snap, now: now, wokeRecently: false).isEmpty)
     }
 }
 

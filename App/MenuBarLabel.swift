@@ -28,6 +28,16 @@ func applyUserOrder<T>(_ items: [T], order: [String], id: (T) -> String) -> [T] 
 
 /// แถบสั้นแบบ provider × เปอร์เซ็นต์ สำหรับพื้นที่ menu bar
 /// ไม่มีการสร้างตัวเลขขึ้นเอง: ถ้ายังวัดไม่ได้จะแสดง `—`
+/// จำนวน token แบบสั้นสำหรับแถบเมนู — "92M" ไม่ใช่ "91.90M" ที่กินที่เกินจำเป็น
+///
+/// ตัวอักษรหน่วยคือสิ่งเดียวที่กัน "92M" ไม่ให้ถูกอ่านเป็น "92%" เพราะโหมดกระชับ
+/// ตัดเครื่องหมาย % ทิ้ง ตัวเลขเปล่าสองแบบจะหน้าตาเหมือนกันทันทีถ้าหน่วยหลุด
+func barTokensText(_ tokens: Int) -> String {
+    if tokens >= 1_000_000 { return "\(Int((Double(tokens) / 1_000_000).rounded()))M" }
+    if tokens >= 1_000 { return "\(Int((Double(tokens) / 1_000).rounded()))k" }
+    return "\(tokens)"
+}
+
 func menuBarSegments(snapshot: UsageSnapshot, now: Date, wokeRecently: Bool,
                      hidden: Set<String> = [],
                      pinned: [String] = [],
@@ -68,7 +78,12 @@ func menuBarSegments(snapshot: UsageSnapshot, now: Date, wokeRecently: Bool,
             case let (s?, w?): top = s; bottom = w
             case let (s?, nil): top = s; bottom = nil
             case let (nil, w?): top = w; bottom = nil
-            case (nil, nil): top = "–"; bottom = nil
+            case (nil, nil):
+                // ไม่มี % ให้แสดง แต่ถ้ายังมี traffic จริง จำนวน token คือสิ่งเดียว
+                // ที่ยังวัดได้ ขีดเปล่าบอกแค่ "ไม่รู้" ซึ่งไม่ช่วยอะไรกับถังที่ยังใช้อยู่
+                // (เคสจริง 2026-09-10: Codex เลิกรายงาน % หลังเปลี่ยนแผน เหลือแต่ขีด)
+                top = item.weekTokens > 0 ? barTokensText(item.weekTokens) : "–"
+                bottom = nil
             }
             made.append(MenuBarSegment(id: item.id, group: group, assetName: symbol,
                                        tag: nil, top: top, bottom: bottom, color: color))
