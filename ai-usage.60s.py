@@ -1276,6 +1276,135 @@ def apply_codex_anchor(fields, anchor, now):
     return fields
 
 
+# ── ถาม Codex CLI ตรงๆ ─────────────────────────────────────────────────────
+# อ่านล็อกอย่างเดียวพึ่งไม่ได้: session ที่เปิดค้างตอนชนลิมิตเขียนแต่ถัง Spark ลงล็อก
+# (เคสจริง 2026-09-11: แอปค้าง 6% สามชั่วโมงทั้งที่ของจริง 23%) · app-server ของ
+# Codex มี account/rateLimits/read ที่คืนเลขสดโดยไม่เรียกโมเดล ไม่เสีย quota และ CLI
+# ใช้ auth ของมันเอง เอนจินไม่แตะ credential ใดๆ · ห้ามส่ง account/rateLimitResetCredit/
+# consume เด็ดขาด — นั่นคือการเผาใบรีเซ็ตของผู้ใช้ทิ้ง
+CODEX_LIVE_TTL = 120
+CODEX_BIN_CANDIDATES = ("/opt/homebrew/bin/codex", "/usr/local/bin/codex")
+CODEX_LIVE_PATH = os.path.join(os.path.dirname(SNAPSHOT_PATH), "codex-live.json")
+
+
+def _codex_bin():
+    """แอปที่เปิดจาก Finder มี PATH สั้น — หาจากที่อยู่จริงก่อน which"""
+    import shutil
+    for c in CODEX_BIN_CANDIDATES:
+        if os.access(c, os.X_OK):
+            return c
+    return shutil.which("codex")
+
+
+def fetch_codex_rate_limits(timeout=12, binary=None):
+    """account/rateLimits/read ผ่าน `codex app-server` (อ่านอย่างเดียว) — ล้มคืน None"""
+    import select
+    import subprocess
+    binary = binary or _codex_bin()
+    if not binary:
+        return None
+    try:
+        proc = subprocess.Popen([binary, "app-server"], stdin=subprocess.PIPE,
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                text=True, bufsize=1)
+    except OSError:
+        return None
+    end = time.time() + timeout
+
+    def wait_for(msg_id):
+        while time.time() < end:
+            ready, _, _ = select.select([proc.stdout], [], [], max(0.0, end - time.time()))
+            if not ready:
+                return None
+            line = proc.stdout.readline()
+            if not line:
+                return None
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                continue
+            if msg.get("id") == msg_id:
+                return msg
+        return None
+
+    try:
+        proc.stdin.write(json.dumps({"id": 1, "method": "initialize", "params": {
+            "clientInfo": {"name": "aiusage", "version": "1"}}}) + "\n")
+        proc.stdin.flush()
+        if not wait_for(1):
+            return None
+        proc.stdin.write(json.dumps({"method": "initialized"}) + "\n")
+        proc.stdin.write(json.dumps({"id": 2, "method": "account/rateLimits/read",
+                                     "params": {}}) + "\n")
+        proc.stdin.flush()
+        reply = wait_for(2)
+        result = (reply or {}).get("result")
+        return result if isinstance(result, dict) else None
+    except (OSError, ValueError):
+        return None
+    finally:
+        try:
+            proc.terminate()
+            proc.wait(timeout=2)
+        except Exception:  # noqa: BLE001
+            proc.kill()
+
+
+def codex_live(fetch=fetch_codex_rate_limits, path=None, clock=time.time):
+    """คำตอบล่าสุดของ app-server — ถามใหม่ไม่ถี่กว่า CODEX_LIVE_TTL วินาที
+
+    ถามไม่สำเร็จคืน cache เก่า (อายุติดไปใน fetchedAt เลขในล็อกที่ใหม่กว่าจึงยังชนะได้)
+    """
+    path = path or CODEX_LIVE_PATH
+    cached = read_json(path, None)
+    if isinstance(cached, dict) and clock() - cached.get("fetchedAt", 0) < CODEX_LIVE_TTL:
+        return cached
+    result = fetch()
+    if result is None:
+        return cached if isinstance(cached, dict) else None
+    fresh = {"fetchedAt": clock(), "result": result}
+    write_json(path, fresh)
+    return fresh
+
+
+def codex_live_windows(live):
+    """แปลงคำตอบ account/rateLimits/read เป็นรูปเดียวกับหน้าต่างของ codex_stats
+
+    เอาถัง "codex" จาก rateLimitsByLimitId ก่อน — rateLimits ระดับบนคือถังที่ใช้อยู่
+    ตอนนั้น ซึ่งเป็นถัง Spark (ช่องเปล่า) ได้
+    """
+    if not isinstance(live, dict):
+        return {}
+    res = live.get("result") or {}
+    snap = (res.get("rateLimitsByLimitId") or {}).get("codex") or res.get("rateLimits") or {}
+    ts = datetime.fromtimestamp(live.get("fetchedAt", 0), timezone.utc)
+    out = {}
+    for slot in ("primary", "secondary"):
+        w = snap.get(slot)
+        if isinstance(w, dict) and w.get("usedPercent") is not None:
+            out[slot] = {"win": {"used_percent": float(w["usedPercent"]),
+                                 "window_minutes": w.get("windowDurationMins"),
+                                 "resets_at": w.get("resetsAt")},
+                         "ts": ts, "limitId": snap.get("limitId"), "seen": []}
+    return out
+
+
+def codex_live_resets(live):
+    """ใบรีเซ็ตที่ server บอกว่ายังใช้ได้ เรียงใบที่หมดก่อน · None = ไม่ได้ข้อมูลเลย
+
+    [] ต่างจาก None — แปลว่า server ยืนยันว่าไม่เหลือสักใบ
+    """
+    if not isinstance(live, dict):
+        return None
+    summary = (live.get("result") or {}).get("rateLimitResetCredits")
+    if not isinstance(summary, dict):
+        return None
+    return sorted(datetime.fromtimestamp(c["expiresAt"], timezone.utc)
+                  for c in (summary.get("credits") or [])
+                  if isinstance(c, dict) and c.get("status") == "available"
+                  and isinstance(c.get("expiresAt"), (int, float)))
+
+
 def collect(live_override=None):
     """รวบรวมสถานะทุกบัญชีเป็นโครงสร้างเดียว ใช้ได้ทั้งเมนูบาร์และ widget"""
     cfg = load_config()
@@ -1361,9 +1490,17 @@ def collect(live_override=None):
             cs = None
         if not cs:
             continue
+        # เลขสดจาก app-server เข้าไปแข่งกับเลขในล็อกแบบเดียวกัน — ตัวใหม่กว่าชนะ
+        live = codex_live() if live_enabled else None
+        for slot, entry in codex_live_windows(live).items():
+            cur = cs["windows"].get(slot)
+            if cur is None or cur.get("ts") is None or entry["ts"] >= cur["ts"]:
+                cs["windows"][slot] = entry
         cf = apply_codex_anchor(codex_fields(cs, now),
                                 parse_codex_anchor(cfg.get("codexAnchor")), now)
-        configured = parse_codex_resets(cfg.get("codexLimitResets"))
+        live_resets = codex_live_resets(live)
+        configured = (live_resets if live_resets is not None
+                      else parse_codex_resets(cfg.get("codexLimitResets")))
         codex_resets = live_codex_resets(configured, now) if configured is not None else None
         items.append(with_contract({
             "group": "Codex",
