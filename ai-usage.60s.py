@@ -504,6 +504,49 @@ def iter_lines_reverse(path, chunk_size=1 << 20):
             yield tail.decode("utf-8", "ignore")
 
 
+# เวลาใน "try again at ..." ของ Codex ถูกเขียนเป็นเวลาท้องถิ่นของเครื่องที่รัน CLI
+# ซึ่งก็คือเครื่องนี้ — เทสต์สลับค่านี้ได้ ไม่ต้องไปยุ่งกับ TZ ของ process
+LOCAL_TZ = datetime.now().astimezone().tzinfo
+
+_RETRY_RE = re.compile(
+    r"try again at\s+(?:(?P<mon>[A-Za-z]{3})[a-z]*\s+(?P<day>\d{1,2})(?:st|nd|rd|th)?,\s*"
+    r"(?P<year>\d{4})\s+)?(?P<h>\d{1,2}):(?P<m>\d{2})\s*(?P<ap>AM|PM)", re.I)
+_MONTHS = {m: i for i, m in enumerate(
+    ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), 1)}
+
+
+def parse_retry_time(message, hit_at, tz=None):
+    """เวลาใน "try again at ..." ของข้อความชนลิมิต → datetime UTC หรือ None
+
+    เจอสองรูปในล็อกจริง: "2:19 PM" (วันเดียวกับที่ชน) และ "Sep 15th, 2026 2:37 PM"
+    เวลาแบบไม่มีวันที่ที่ผ่านไปแล้วของวันนั้น (ชนห้าทุ่มครึ่ง บอก "2:19 AM") คือพรุ่งนี้
+    อ่านไม่ออกคืน None — ห้ามเดา เพราะเวลานี้คือตัวบอกว่าหน้าต่างไหนหมด
+    """
+    if not isinstance(message, str) or hit_at is None:
+        return None
+    m = _RETRY_RE.search(message)
+    if not m:
+        return None
+    tz = tz or LOCAL_TZ
+    hour = int(m.group("h")) % 12 + (12 if m.group("ap").upper() == "PM" else 0)
+    minute = int(m.group("m"))
+    if m.group("mon"):
+        month = _MONTHS.get(m.group("mon")[:3].lower())
+        if month is None:
+            return None
+        try:
+            local = datetime(int(m.group("year")), month, int(m.group("day")),
+                             hour, minute, tzinfo=tz)
+        except ValueError:
+            return None
+    else:
+        base = hit_at.astimezone(tz)
+        local = base.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if local <= base:
+            local += timedelta(days=1)
+    return local.astimezone(timezone.utc)
+
+
 def codex_stats(codex_dir):
     """Codex เขียน rate_limits ที่เป็นเปอร์เซ็นต์จริงลง rollout log — ใช้ค่านั้นเลย
 
@@ -524,6 +567,7 @@ def codex_stats(codex_dir):
     windows = {}       # ช่อง → {limit_id → {"win": หน้าต่างดิบ, "ts": เวลาของ record}}
     last_activity = None
     credits = None     # (ts, ค่า) — เครดิตล่าสุดที่อ่านออก
+    limit_hit = None   # {"at", "retry"} — คำประกาศชนลิมิตล่าสุด
     week_cut = now_utc() - timedelta(days=WEEK_DAYS)
 
     for path in files[:60]:
@@ -535,7 +579,9 @@ def codex_stats(codex_dir):
         lines = iter_lines_reverse(path)
         try:
             for line in lines:
-                if "token_count" not in line:
+                # การชนลิมิตไม่ได้มาในรูป token_count — มันเป็น error event แยก ถ้ากรอง
+                # แต่ token_count คำประกาศว่า "หมดแล้ว" จะถูกทิ้งตั้งแต่ด่านแรก
+                if "token_count" not in line and "usage_limit_exceeded" not in line:
                     continue
                 try:
                     rec = json.loads(line)
@@ -545,6 +591,13 @@ def codex_stats(codex_dir):
                 if ts is not None and ts < week_cut:
                     break  # ไล่จากท้ายมา ที่เหลือข้างหน้าเก่ากว่านี้ทั้งหมด
                 payload = rec.get("payload") or rec
+                err = payload.get("error")
+                # rate_limits ไม่เคยรายงาน 100% — ตอนชนจริง Codex ประกาศผ่าน error event
+                # (เคสจริง 2026-09-11: rate_limits ค้าง 79% แล้ว event นี้โผล่ 4 ชม.ต่อมา)
+                if (isinstance(err, dict) and err.get("codex_error_info") == "usage_limit_exceeded"
+                        and ts is not None and (limit_hit is None or ts > limit_hit["at"])):
+                    limit_hit = {"at": ts,
+                                 "retry": parse_retry_time(err.get("message"), ts, LOCAL_TZ)}
                 info = payload.get("info") or {}
                 last = info.get("last_token_usage") or {}
                 used = int(last.get("total_tokens") or 0)
@@ -580,6 +633,7 @@ def codex_stats(codex_dir):
             "windows": {slot: pick_live_window(buckets)
                         for slot, buckets in windows.items() if buckets},
             "credits": credits[1] if credits else None,
+            "limitHit": limit_hit,
             "lastActivity": last_activity}
 
 
@@ -708,7 +762,8 @@ def codex_fields(cs, now):
     เลขสัปดาห์จะไปโผล่ในแถว "5h" ของ popover ซึ่งเป็นคนละเรื่องกัน
     """
     out = {"pct": None, "confidence": None, "weekPct": None, "weekConfidence": None,
-           "resetAt": None, "weekResetAt": None, "window": "5 ชม."}
+           "resetAt": None, "weekResetAt": None, "window": "5 ชม.",
+           "activeLimit": None, "severity": None}
     picked = {}
     for slot in ("primary", "secondary"):
         entry = (cs.get("windows") or {}).get(slot)
@@ -756,7 +811,45 @@ def codex_fields(cs, now):
         out["resetAt"] = week[1]["end"]
     elif short and not short[1].get("placeholder"):
         out["resetAt"] = short[1]["end"]
+    _apply_limit_hit(out, cs.get("limitHit"), picked, now)
     return out
+
+
+def _apply_limit_hit(out, hit, picked, now):
+    """คำประกาศชนลิมิต = หน้าต่างนั้น 100% จนกว่าจะรีเซ็ต — เหมือน 429 ของ token-plan
+
+    เวลาใน "try again at" คือเวลารีเซ็ตของหน้าต่างที่ชน (ตัดวินาทีทิ้ง) จึงจับคู่กับ
+    เวลาสิ้นสุดของหน้าต่างที่รู้อยู่ได้ ต่างกันเกิน 2 นาทีถือว่าไม่ใช่หน้าต่างนั้น
+    ไม่ตรงหน้าต่างไหนเลยห้ามเดาเอาหน้าต่างที่มีไปใส่ 100% · เลขจริงที่มาทีหลัง
+    คำประกาศชนะเสมอ (กดใช้ใบรีเซ็ตแล้วโควตากลับมา)
+    """
+    if not hit:
+        return
+    candidates = [(k, picked[k]) for k in ("short", "week")
+                  if k in picked and not picked[k][1].get("placeholder")]
+    target = None
+    if hit.get("retry") is not None:
+        for k, (ts, w) in candidates:
+            if w["end"] is not None and abs((w["end"] - hit["retry"]).total_seconds()) <= 120:
+                target = (k, ts, w)
+                break
+    elif len(candidates) == 1:
+        k, (ts, w) = candidates[0]
+        target = (k, ts, w)
+    if target is None:
+        return
+    k, ts, w = target
+    if ts is not None and hit["at"] <= ts:
+        return                      # มีเลขจริงที่ใหม่กว่าคำประกาศ
+    if w["end"] is not None and now >= w["end"]:
+        return                      # หน้าต่างรีเซ็ตไปแล้ว คำประกาศเป็นของรอบเก่า
+    if k == "short":
+        out["pct"], out["confidence"], out["resetAt"] = 100.0, "valid", w["end"]
+        out["activeLimit"] = "session"
+    else:
+        out["weekPct"], out["weekConfidence"] = 100.0, "valid"
+        out["activeLimit"] = "weekly"
+    out["severity"] = "critical"
 
 
 # ── config เริ่มต้น ─────────────────────────────────────────────────────────
@@ -1304,6 +1397,9 @@ def collect(live_override=None):
                                              or cf["weekPct"] is not None) else None)),
             "confidence": cf["confidence"],
             "weekConfidence": cf["weekConfidence"],
+            # จุดแดง "ชนลิมิต" บนการ์ดอ่านสองช่องนี้ — มาจากคำประกาศชนลิมิตของ Codex
+            "activeLimit": cf.get("activeLimit"),
+            "severity": cf.get("severity"),
             "weekResetAt": (cf["weekResetAt"].isoformat().replace("+00:00", "Z")
                             if cf["weekResetAt"] else None),
         }))
