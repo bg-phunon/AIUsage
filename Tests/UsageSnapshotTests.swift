@@ -115,6 +115,40 @@ final class UsageSnapshotTests: XCTestCase {
         XCTAssertEqual(rows[0].expiresAt, now.addingTimeInterval(3600 * 24 * 23))
     }
 
+    // MARK: - หัวข้อที่ยุบได้
+
+    /// หัวข้อต้องบอกเองว่าคืออะไร — ก่อนหน้านี้เขียนแค่ "รีเซ็ต" แล้วไปนั่งอยู่ใน
+    /// คอลัมน์ที่แปลว่า "อีกนานแค่ไหนจะรีเซ็ต" คนอ่านเลยเข้าใจเป็นคนละเรื่อง
+    func testTheHeaderSaysWhatTheseThingsAre() {
+        let now = Date()
+        let title = limitResetsTitle(codexWith([86400, 172_800], from: now))
+        XCTAssertEqual(title, "ใบรีเซ็ตลิมิต 2 ใบ")
+    }
+
+    func testNoResetsHasNoHeader() {
+        XCTAssertNil(limitResetsTitle(UsageItem(group: "Codex", label: "Codex", window: "5h")))
+    }
+
+    /// เหลือศูนย์ใบยังต้องพูด — แปลว่าชนเพดานแล้วไม่มีทางออก
+    func testRunningOutIsStillAnnounced() {
+        var it = UsageItem(group: "Codex", label: "Codex", window: "5h")
+        it.limitResets = 0
+        XCTAssertEqual(limitResetsTitle(it), "ไม่เหลือใบรีเซ็ตลิมิต")
+    }
+
+    /// แต่ละบรรทัดต้องอ่านออกว่าเป็น "วันหมดอายุของใบ" ไม่ใช่ "เวลาที่ลิมิตจะรีเซ็ต"
+    func testEachLineReadsAsAnExpiryNotAReset() {
+        let now = Date(timeIntervalSince1970: 1_789_000_000)
+        let line = limitResetLine(ResetRow(expiresAt: now.addingTimeInterval(86400 * 2), extra: 0),
+                                  now: now)
+        XCTAssertEqual(line, "ใช้ได้อีก 2วัน 0ชม.")
+    }
+
+    func testTheCollapsedSummaryLineNamesHowManyAreHidden() {
+        let line = limitResetLine(ResetRow(expiresAt: nil, extra: 3), now: Date())
+        XCTAssertEqual(line, "และอีก 3 ใบ")
+    }
+
     func testNoResetsMeansNoRows() {
         XCTAssertTrue(limitResetRows(UsageItem(group: "Codex", label: "Codex", window: "5h")).isEmpty)
     }
@@ -143,20 +177,12 @@ final class UsageSnapshotTests: XCTestCase {
         let snap = try XCTUnwrap(UsageSnapshot.decode(from: Data(json.utf8)))
         XCTAssertEqual(snap.items[0].limitResets, 2)
         XCTAssertNotNil(snap.items[0].limitResetExpiresAt)
-        XCTAssertNil(limitResetsLabel(snap.items[0]),
-                     "ใบที่ยังใช้ได้ไปอยู่เป็นแถวของตัวเองแล้ว บรรทัดท้ายไม่ต้องพูดถึงอีก")
-    }
-
-    /// ศูนย์ใบต่างจาก "ไม่มีแนวคิดนี้" — อันแรกแปลว่าชนเพดานแล้วจบ ไม่มีทางออก
-    func testRunningOutOfResetsIsSaidOutLoud() {
-        var it = UsageItem(group: "Codex", label: "Codex", window: "5 ชม.")
-        it.limitResets = 0
-        XCTAssertEqual(limitResetsLabel(it), "ไม่เหลือใบรีเซ็ต")
+        XCTAssertEqual(limitResetsTitle(snap.items[0]), "ใบรีเซ็ตลิมิต 2 ใบ")
     }
 
     func testABucketWithoutResetsSaysNothing() {
         let it = UsageItem(group: "Claude Code", label: "work", window: "5 ชม.")
-        XCTAssertNil(limitResetsLabel(it))
+        XCTAssertNil(limitResetsTitle(it))
     }
 
     /// การ์ดใส่ได้บรรทัดเดียว รายละเอียดว่าใบไหนหมดเมื่อไหร่จึงอยู่ใน tooltip

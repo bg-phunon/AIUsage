@@ -34,6 +34,9 @@ struct PopoverView: View {
     // คนละตัว ถ้า view ดูแค่ model ปุ่มหมุดจะกดแล้วค่าบันทึกจริงแต่จอไม่วาดใหม่
     @ObservedObject var prefs: Preferences
     @State private var now = Date()
+    /// การ์ดไหนกางรายละเอียดใบรีเซ็ตอยู่ — จำแค่ระหว่างเปิด popover ค้างไว้ก็พอ
+    /// ไม่ต้องลง UserDefaults เพราะเป็นท่านั่งชั่วคราว ไม่ใช่ความชอบ
+    @State private var expandedResets: Set<String> = []
     // ทุก 20 วิพอ — นับถอยหลังละเอียดระดับนาทีอยู่แล้ว
     // การวาดใหม่ทุกวินาทีทำให้พื้นที่ tooltip ถูกลงทะเบียนใหม่ตลอด
     // hover ค้างอยู่ระหว่างนั้น tooltip จะไปโผล่ผิดที่
@@ -335,11 +338,7 @@ struct PopoverView: View {
                     }
                     .frame(height: 16)
                 }
-                // ใบรีเซ็ตใช้คอลัมน์เดียวกับหน้าต่างโควตา — มันมีรูปร่างเหมือนกัน
-                // คือมีของ และมีเวลาที่ของนั้นหมด กวาดตาลงคอลัมน์เดียวกันได้เลย
-                ForEach(Array(limitResetRows(item).enumerated()), id: \.offset) { _, row in
-                    resetRow(row, tint: item.tint, detail: limitResetsDetail(item, now: now))
-                }
+                if let title = limitResetsTitle(item) { resetDisclosure(item, title: title) }
                 if let note = rowFootnote(item, price: prefs.prices[item.id], now: now) {
                     Text(note).font(.system(size: 10)).foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -413,34 +412,46 @@ struct PopoverView: View {
 
     /// คอลัมน์เวลารีเซ็ต — ว่างเมื่อไม่มีหรือรีเซ็ตผ่านไปแล้ว
     /// "รีเซ็ตแล้ว" ที่ค้างโชว์คือ noise: เลขในแถวนั้นสดกว่าข้อความนี้เสมอ
-    /// แถวใบรีเซ็ตหนึ่งใบ — คอลัมน์เดียวกับแถวหน้าต่างเป๊ะ ไม่งั้นตากวาดลงมาแล้วสะดุด
-    @ViewBuilder private func resetRow(_ row: ResetRow, tint: Color,
-                                       detail: String?) -> some View {
-        HStack(spacing: 8) {
-            Text(row.expiresAt == nil ? "" : "รีเซ็ต")
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
-                .foregroundStyle(.primary.opacity(0.62))
-                .lineLimit(1)
-                .frame(width: 32, alignment: .leading)
-            // จุด ไม่ใช่แถบ — ใบรีเซ็ตเป็นของคงเหลือ ไม่ใช่ความคืบหน้า
-            // แถบทึบตรงนี้จะอ่านเป็น "ใช้ไปแล้วเท่านี้" ซึ่งคนละเรื่องกันเลย
-            HStack(spacing: 0) {
-                if row.expiresAt != nil {
-                    Circle().fill(tint).frame(width: 5, height: 5)
+    /// หัวข้อที่กดกางได้ — อยู่นอกตารางหน้าต่างโดยตั้งใจ
+    ///
+    /// ใบรีเซ็ตไม่ใช่หน้าต่างโควตา มันคือของที่ถืออยู่และมีวันหมดอายุ การเอาไปวางใน
+    /// ตารางเดียวกันทำให้คอลัมน์เวลาเปลี่ยนความหมายกลางคัน · ยุบไว้เป็นค่าเริ่มต้น
+    /// เพราะคนส่วนใหญ่ไม่ได้อยากรู้ตลอดเวลา แค่ตอนใกล้ชนเพดาน
+    @ViewBuilder private func resetDisclosure(_ item: UsageItem, title: String) -> some View {
+        let rows = limitResetRows(item)
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 4) {
+                if !rows.isEmpty {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(expandedResets.contains(item.id) ? 90 : 0))
                 }
+                Text(title)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
             }
-            Text(row.extra > 0 ? "+\(row.extra) ใบ" : "")
-                .font(.system(size: 10, weight: .medium, design: .rounded))
-                .monospacedDigit()
-                .frame(width: 42, alignment: .trailing)
-            Text(row.expiresAt.map { countdownText(to: $0, from: now) } ?? "")
-                .font(.system(size: 9))
-                .foregroundStyle(.secondary)
-                .frame(width: 56, alignment: .trailing)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard !rows.isEmpty else { return }
+                withAnimation(.easeOut(duration: 0.12)) {
+                    if expandedResets.contains(item.id) {
+                        expandedResets.remove(item.id)
+                    } else {
+                        expandedResets.insert(item.id)
+                    }
+                }
+            }
+            if expandedResets.contains(item.id) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    Text(limitResetLine(row, now: now))
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(.secondary.opacity(0.85))
+                        .padding(.leading, 15)
+                }
+            }
         }
-        .frame(height: 16)
-        .help(row.extra > 0 ? (detail ?? "") : "")
     }
 
     private func resetColumnText(_ resetAt: Date?) -> String {
@@ -611,10 +622,21 @@ func limitResetRows(_ item: UsageItem, limit: Int = 4) -> [ResetRow] {
         + [ResetRow(expiresAt: nil, extra: all.count - (limit - 1))]
 }
 
-/// เหลือศูนย์ใบต้องบอก — แปลว่าชนเพดานแล้วจบ ไม่มีทางออก
-/// ส่วนใบที่ยังใช้ได้ไปอยู่เป็นแถวของตัวเองในตาราง จะได้เห็นวันหมดอายุครบทุกใบ
-func limitResetsLabel(_ item: UsageItem) -> String? {
-    item.limitResets == 0 ? "ไม่เหลือใบรีเซ็ต" : nil
+/// หัวข้อของกลุ่มใบรีเซ็ต — ต้องบอกเองว่าคืออะไร
+///
+/// เวอร์ชันก่อนเขียนแค่ "รีเซ็ต" แล้ววางไว้ในตารางหน้าต่าง ซึ่งคอลัมน์ขวาสุดของมัน
+/// แปลว่า "อีกนานแค่ไหนจะรีเซ็ต" อยู่แล้ว คนอ่านจึงเข้าใจเป็น "ลิมิตจะรีเซ็ตในอีก
+/// 23 วัน" แทนที่จะเป็น "ใบนี้ใช้ได้อีก 23 วัน" — คนละเรื่องกันคนละทาง
+func limitResetsTitle(_ item: UsageItem) -> String? {
+    guard let count = item.limitResets else { return nil }
+    return count == 0 ? "ไม่เหลือใบรีเซ็ตลิมิต" : "ใบรีเซ็ตลิมิต \(count) ใบ"
+}
+
+/// หนึ่งบรรทัดในรายละเอียดที่กางออกมา — ต้องอ่านออกว่าเป็นวันหมดอายุของ *ใบ*
+/// ไม่ใช่เวลาที่ลิมิตจะรีเซ็ต คำว่า "ใช้ได้อีก" คือสิ่งที่แยกสองอย่างนี้ออกจากกัน
+func limitResetLine(_ row: ResetRow, now: Date) -> String {
+    guard let expiresAt = row.expiresAt else { return "และอีก \(row.extra) ใบ" }
+    return "ใช้ได้อีก \(countdownText(to: expiresAt, from: now))"
 }
 
 /// รายละเอียดว่าแต่ละใบหมดเมื่อไหร่ — บรรทัดเดียวในการ์ดใส่ไม่ไหว จึงอยู่ใน tooltip
@@ -632,7 +654,6 @@ func rowFootnote(_ item: UsageItem, price: Price?, now: Date) -> String? {
     if item.tokens > 0 { parts.append(item.tokensText) }
     if let cost = costLabel(item, price: price) { parts.append(cost) }
     if let credits = creditsLabel(item) { parts.append(credits) }
-    if let resets = limitResetsLabel(item) { parts.append(resets) }
     return parts.isEmpty ? nil : parts.joined(separator: " · ")
 }
 
