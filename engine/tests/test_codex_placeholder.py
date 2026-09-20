@@ -80,6 +80,23 @@ class NeverElapsesTest(unittest.TestCase):
         obs = observations(NOW, count=16, step_minutes=20, window_minutes=10080, sliding=False)
         self.assertFalse(engine.window_never_elapses(obs, 10080))
 
+    def test_a_window_seen_again_after_a_reset_and_a_long_idle_gap_is_real(self):
+        """เคสจริง 2026-09-19: ใช้ Codex เช้าวันที่ 14 แล้วเงียบไป 5 วันครึ่ง
+        กลับมาใช้อีกทีตอนหน้าต่างสัปดาห์หมุนใหม่แล้ว
+
+        ช่วงเวลาที่เฝ้าดูกินเวลาว่าง 5 วันครึ่งไปด้วย แต่ "เวลาที่เหลือ" ถูก
+        เติมกลับเต็มตอนรีเซ็ต กฎที่เทียบสองอย่างนี้ตรงๆ เลยอ่านหน้าต่างจริง
+        เป็นช่องเปล่า แล้ว % ของสัปดาห์ก็หายจากจอทุกครั้งที่รีเซ็ต
+        """
+        obs = []
+        first_end = NOW + timedelta(minutes=7920)          # หน้าต่างรอบก่อน
+        for i in range(78):
+            obs.append((NOW + timedelta(seconds=i * 37), first_end))
+        back = NOW + timedelta(minutes=7994)               # กลับมาใช้หลังรีเซ็ต
+        for i in range(69):
+            obs.append((back + timedelta(seconds=i * 7), back + timedelta(minutes=10080)))
+        self.assertFalse(engine.window_never_elapses(obs, 10080))
+
     def test_a_window_that_rolled_over_mid_observation_is_still_real(self):
         """เห็นคร่อมจังหวะหมุน — เหลือเวลากระโดดกลับขึ้นไปเต็ม ห้ามอ่านว่าปลอม"""
         obs = []
@@ -125,6 +142,23 @@ class FieldsTest(unittest.TestCase):
         out = engine.codex_fields(cs, NOW)
         self.assertEqual(out["pct"], 62.0)
         self.assertEqual(out["confidence"], "valid")
+
+    def test_the_weekly_percent_survives_a_reset_after_a_quiet_week(self):
+        """ปลายทางของเคสจริง 2026-09-19 — แอปโชว์แต่ token ไม่มี % ทั้งที่ล็อกมีเลข"""
+        obs = []
+        old_end = NOW - timedelta(minutes=74)   # หน้าต่างรอบก่อนหมดไปเมื่อชั่วโมงที่แล้ว
+        for i in range(78):                     # ครั้งสุดท้ายที่ใช้คือ 5 วันครึ่งก่อนมันหมด
+            obs.append((NOW - timedelta(minutes=7994) + timedelta(seconds=i * 37), old_end))
+        end = NOW + timedelta(minutes=10071)
+        for i in range(69):
+            obs.append((NOW - timedelta(minutes=9) + timedelta(seconds=i * 7), end))
+        win = {"used_percent": 4.0, "window_minutes": 10080, "resets_at": end.timestamp()}
+        cs = {"tokens": 203_620_793, "lastActivity": obs[-1][0],
+              "windows": {"primary": self.entry(win, obs[-1][0], obs)}}
+        out = engine.codex_fields(cs, NOW)
+        self.assertEqual(out["weekPct"], 4.0)
+        self.assertEqual(out["weekConfidence"], "valid")
+        self.assertEqual(out["weekResetAt"], end)
 
     def test_windows_without_history_still_work(self):
         """codex_fields ถูกเรียกจากเทสต์เก่าและจากโค้ดที่ไม่มี seen — ห้ามพัง"""
