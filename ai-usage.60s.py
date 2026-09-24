@@ -40,6 +40,7 @@ SELF = os.path.abspath(__file__)
 sys.path.insert(0, os.path.join(os.path.dirname(SELF), "engine"))
 sys.path.insert(0, os.path.dirname(SELF))
 from aiusage import buckets as _buckets  # noqa: E402
+from aiusage import clilive as _clilive  # noqa: E402
 from aiusage import liveusage as _liveu  # noqa: E402
 from aiusage import utilization as _util  # noqa: E402
 from aiusage import quota429 as _q429  # noqa: E402
@@ -442,12 +443,34 @@ def account_utilization(config_dir, live_enabled=True):
     """
     if not live_enabled:
         return _util.read_utilization(config_dir)
+    # ถาม CLI ก่อนเสมอ — มันถือ auth ของตัวเอง เราจึงไม่ต้องแตะ Keychain เลย
+    # (เคสจริง 2026-09-24: token ของบัญชี default หมดอายุ ยิง endpoint เองได้ 401
+    #  ตกไปใช้แคชค้าง 36% ขณะที่ถาม CLI ได้ 59% ของจริง)
+    entry = _clilive.live(config_dir)
+    if entry:
+        cli = _clilive.utilization(entry.get("result"),
+                                   datetime.fromtimestamp(entry.get("fetchedAt") or 0,
+                                                          timezone.utc))
+        # ของสดจาก CLI จบตรงนี้ · ของเก่าค้างแคชต้องไปแข่งกับทางอื่นก่อน
+        if cli is not None and time.time() - (entry.get("fetchedAt") or 0) < _clilive.TTL:
+            return cli
+    else:
+        cli = None
     live = _liveu.fetch_utilization(config_dir)
-    if live is not None:
-        return live
-    candidates = [u for u in (_liveu.cached_live_utilization(config_dir),
+    candidates = [u for u in (cli, live, _liveu.cached_live_utilization(config_dir),
                               _util.read_utilization(config_dir)) if u is not None]
     return max(candidates, key=lambda u: u.fetched_at, default=None)
+
+
+def account_limit_resets(config_dir, live_enabled=False):
+    """ใบรีเซ็ตลิมิตของบัญชีนี้ · None = ไม่ได้ข้อมูล ไม่ใช่ศูนย์
+
+    อ่านจากคำตอบที่ account_utilization ขอมาแล้ว (แคชเดียวกัน ไม่สปอว์นซ้ำ)
+    """
+    if not live_enabled:
+        return None
+    entry = _clilive.live(config_dir)
+    return _clilive.reset_state((entry or {}).get("result"))
 
 
 def claude_account_stats(acc, live_enabled=False):
@@ -464,6 +487,7 @@ def claude_account_stats(acc, live_enabled=False):
         "plan": account_plan(acc["dir"]),
         "budget5hAuto": calibrate_budget5h(entries, hits),
         "utilization": account_utilization(acc["dir"], live_enabled),
+        "limitResets": account_limit_resets(acc["dir"], live_enabled),
         "lastActivity": entries[-1][0] if entries else None,
         "costKnown": costs_known(entries),
     }
@@ -960,6 +984,8 @@ CONTRACT_DEFAULTS = {
     "credits": None, "creditsUnlimited": False,
     # ใบรีเซ็ตลิมิตที่ยังไม่หมดอายุ · None = ถังนี้ไม่มีแนวคิดนี้
     "limitResets": None, "limitResetExpiresAt": None, "limitResetsExpiring": [],
+    # ใบที่ใช้ไปแล้วได้คืนเมื่อไหร่ — ของ Claude เป็นใบต่อสัปดาห์ ไม่ใช่ใบมีวันหมดอายุ
+    "limitResetAvailableAt": None,
 }
 
 
@@ -1419,6 +1445,15 @@ def collect(live_override=None):
     bucket_table = _buckets.load_bucket_table()
     now = now_utc()
 
+    # อุ่นแคชของทุกบัญชีพร้อมกันก่อนเข้าลูป — สปอว์น CLI เรียงกันทีละบัญชีกินเวลา
+    # รวมเกิน 20 วินาที ซึ่งกินเพดาน 45 วินาทีของเอนจินไปครึ่งหนึ่งทั้งที่รอเฉยๆ
+    if live_enabled:
+        try:
+            _clilive.warm([a["dir"] for a in cfg.get("claude", [])
+                           if a.get("enabled", True) and a.get("dir")])
+        except Exception:  # noqa: BLE001
+            pass
+
     for acc in cfg.get("claude", []):
         if not acc.get("enabled", True):
             continue
@@ -1455,6 +1490,7 @@ def collect(live_override=None):
             if uf["resetAt"] is not None:
                 reset_at = uf["resetAt"]
 
+        resets = st.get("limitResets")
         items.append(with_contract({
             "group": "Claude Code", "label": acc["label"], "window": "5 ชม.",
             "pct": round(pct, 1) if pct is not None else None,
@@ -1479,6 +1515,14 @@ def collect(live_override=None):
             # บัญชี subscription จ่ายเหมาไปแล้ว ตัวเลขนี้คือ "มูลค่าถ้ายิงผ่าน API"
             # ไม่ใช่บิล — UI ต้องไม่แสดงเหมือนเงินที่ไหลออกจริง
             "costKind": "notional" if (st.get("plan") and st.get("costKnown")) else None,
+            # ใบรีเซ็ตลิมิต — มาจาก CLI เท่านั้น ถ้า server ไม่ยอมบอกก็เป็น None ทั้งชุด
+            "limitResets": resets["count"] if resets else None,
+            "limitResetExpiresAt": (resets["expiring"][0].isoformat().replace("+00:00", "Z")
+                                    if resets and resets["expiring"] else None),
+            "limitResetsExpiring": [x.isoformat().replace("+00:00", "Z")
+                                    for x in (resets["expiring"] if resets else [])],
+            "limitResetAvailableAt": (resets["nextAvailableAt"].isoformat().replace("+00:00", "Z")
+                                      if resets and resets.get("nextAvailableAt") else None),
         }))
         try:
             items.extend(bucket_rows(acc, bucket_table,

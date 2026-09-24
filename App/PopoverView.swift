@@ -338,7 +338,7 @@ struct PopoverView: View {
                     }
                     .frame(height: 16)
                 }
-                if let title = limitResetsTitle(item) { resetDisclosure(item, title: title) }
+                if let title = limitResetsTitle(item, now: now) { resetDisclosure(item, title: title) }
                 if let note = rowFootnote(item, price: prefs.prices[item.id], now: now) {
                     Text(note).font(.system(size: 10)).foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -627,9 +627,15 @@ func limitResetRows(_ item: UsageItem, limit: Int = 4) -> [ResetRow] {
 /// เวอร์ชันก่อนเขียนแค่ "รีเซ็ต" แล้ววางไว้ในตารางหน้าต่าง ซึ่งคอลัมน์ขวาสุดของมัน
 /// แปลว่า "อีกนานแค่ไหนจะรีเซ็ต" อยู่แล้ว คนอ่านจึงเข้าใจเป็น "ลิมิตจะรีเซ็ตในอีก
 /// 23 วัน" แทนที่จะเป็น "ใบนี้ใช้ได้อีก 23 วัน" — คนละเรื่องกันคนละทาง
-func limitResetsTitle(_ item: UsageItem) -> String? {
+func limitResetsTitle(_ item: UsageItem, now: Date = Date()) -> String? {
     guard let count = item.limitResets else { return nil }
-    return count == 0 ? "ไม่เหลือใบรีเซ็ตลิมิต" : "ใบรีเซ็ตลิมิต \(count) ใบ"
+    if count > 0 { return "ใบรีเซ็ตลิมิต \(count) ใบ" }
+    // ของ Claude เป็นใบต่อสัปดาห์ ใช้แล้วรอรอบหน้า — "ไม่เหลือ" เฉยๆ อ่านเหมือน
+    // หมดแล้วหมดเลย ทั้งที่สิ่งที่คนอยากรู้คือได้คืนเมื่อไหร่
+    if let back = item.limitResetAvailableAt {
+        return "ใช้ใบรีเซ็ตแล้ว · ได้คืนใน \(countdownText(to: back, from: now))"
+    }
+    return "ไม่เหลือใบรีเซ็ตลิมิต"
 }
 
 /// หนึ่งบรรทัดในรายละเอียดที่กางออกมา — ต้องอ่านออกว่าเป็นวันหมดอายุของ *ใบ*

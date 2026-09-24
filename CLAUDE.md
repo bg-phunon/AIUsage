@@ -11,6 +11,7 @@
 ```
 ai-usage.60s.py              เอนจินหลัก — พาร์ส log เขียน snapshot.json
 engine/aiusage/              bucket mapping และ utilization parser
+engine/aiusage/clilive.py    ถาม Claude Code CLI ผ่าน control request get_usage
 project.yml                  XcodeGen spec
 setup.sh                     xcodegen + xcodebuild + ติดตั้งลง /Applications
 App/AIUsageApp.swift         NSStatusItem และ lifecycle ของ menu bar app
@@ -51,7 +52,9 @@ Shared/Appearance.swift      ธีมของ popover (3 แบบ)
 - ถ้าไม่มีเพดานหรือข้อมูลไม่แน่ใจ ห้ามแสดงแถบทึบเป็นตัวเลข
 - ห้ามแสดง `$0.00` เมื่อ `costKnown` เป็น false — ศูนย์ที่แปลว่า "ไม่รู้" อ่านเป็น "ฟรี" (`PRICES` มีแค่โมเดล Anthropic ถังอื่นต้องคืน `cost: null`)
 - ถังกำหนดจาก `ANTHROPIC_BASE_URL` ใน `~/.ccs/*.settings.json` ไม่ใช่ชื่อโมเดล — เช่น `deepseek-v4-flash-0731` คือช่อง Sonnet ของแผน Qwen Cloud ไม่ใช่บัญชี DeepSeek แยกต่างหาก
-- % ทางการของ Claude มาจากสองทาง: (1) `liveusage.py` ถาม endpoint สดทุกรอบ (2) ถ้าล้มเหลว ตกกลับไป `cachedUsageUtilization` ซึ่งรีเฟรชเฉพาะตอนเปิด `/usage` หรือเริ่ม session ใหม่ — เก่าได้เป็นวันและจะรายงาน "ไม่แน่ใจ" เมื่อหน้าต่างหมุนไป
+- **% ของ Claude ถาม CLI ก่อนเสมอ** — `clilive.py` สปอว์น `claude -p --input-format stream-json` แล้วส่ง control request `get_usage` ซึ่งคืนก้อน usage ทั้งใบโดยไม่เรียกโมเดล (วัดจริง: total_cost_usd 0) CLI ถือ auth ของมันเอง เอนจินจึงไม่แตะ Keychain เลย · ได้คำตอบแล้วจบตรงนั้น ไม่ยิง endpoint ต่อ · **บัญชี default ต้องไม่ตั้ง `CLAUDE_CONFIG_DIR`** (เคสจริง 2026-09-24: ตั้งเป็น `~/.claude` ซึ่งเป็นค่าปริยายอยู่แล้ว CLI กลับไปหา keychain ชื่อที่ hash จาก path แทน `Claude Code-credentials` แล้วตอบ plan=None rows=0 เหมือนบัญชีที่ไม่ได้ล็อกอิน) · ตัวแยก "ยังไม่พร้อม" กับ "ว่างจริง" คือธง `rate_limits_available` ไม่ใช่จำนวนแถว — บัญชี Team ตอบ available=true พร้อม rows=0 ค้างเป็นนาทีได้ ถามซ้ำก็เท่าเดิม · แคช 180 วิต่อบัญชีใน `claude-live.json` นับจาก `triedAt` ไม่ใช่ `fetchedAt` (บัญชีที่ไม่ได้ล็อกอินตอบไม่ได้เสมอ ถ้านับจากครั้งที่สำเร็จจะถูกสปอว์นใหม่ทุกนาที ครั้งละ 3 วินาที) · `warm()` ถามทุกบัญชีพร้อมกันก่อนเข้าลูป — เรียงกันทีละบัญชีกินเวลา 21 วินาทีจากเพดาน 45
+- ถ้า CLI ตอบไม่ได้หรือตอบว่าง ยังมีทางเดิมต่อท้าย: (1) `liveusage.py` ยิง endpoint เองด้วย token จาก Keychain (2) `cachedUsageUtilization` ซึ่งรีเฟรชเฉพาะตอนเปิด `/usage` หรือเริ่ม session ใหม่ — เก่าได้เป็นวัน และจะรายงาน "ไม่แน่ใจ" เมื่อหน้าต่างหมุนไป · ตัวใหม่สุดชนะ
+- ใบรีเซ็ตลิมิตของ Claude อยู่ในก้อน usage ชื่อ `juniper_tide` (ใบเดียวต่อสัปดาห์ ใช้ผ่าน `/limit-reset` รีเซ็ตหน้าต่าง 5 ชม. แล้วไปกินโควตารายสัปดาห์) กับ `cedar_ember` (ใบเป็นใบๆ มีวันหมดอายุ แบบเดียวกับ Codex) · ทั้งคู่มี `eligible` — `false` แปลว่า **client นี้ไม่มีสิทธิ์รู้** (เคสจริง 2026-09-24: ineligible_reason "surface" ทั้งที่บัญชีมีสิทธิ์ใช้) ซึ่งต้องเป็น `None` ห้ามกลายเป็น 0 ที่อ่านว่า "ใช้หมดแล้ว" · server ส่งสองก้อนนี้มาเฉพาะเมื่อถูกขอ (`?at_wall=1` / `?cedar_ember=1`) ตอนถามเฉยๆ จะเป็น null
 
 ## ตรวจว่าใช้ได้จริง
 

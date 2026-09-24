@@ -52,6 +52,9 @@ struct UsageItem: Codable, Identifiable, Hashable {
     var limitResetExpiresAt: Date? = nil
     /// วันหมดอายุของทุกใบ เรียงใบที่จะหมดก่อน — ใบที่หมดแล้วถูกกรองทิ้งตั้งแต่ฝั่งเอนจิน
     var limitResetsExpiring: [Date] = []
+    /// ใบที่ใช้ไปแล้วได้คืนเมื่อไหร่ — ของ Claude เป็นใบต่อสัปดาห์ ไม่ใช่ใบมีวันหมดอายุ
+    /// จึงไม่มีอะไรลงในรายการข้างบน มีแต่วันที่รอบหน้าจะมาถึง
+    var limitResetAvailableAt: Date? = nil
 
     enum CodingKeys: String, CodingKey {
         case group, label, window, pct, tokens, cost, calls, resetAt, weekTokens, weekCost, weekPct
@@ -59,7 +62,7 @@ struct UsageItem: Codable, Identifiable, Hashable {
         case profile, plan, pctSource, confidence, weekConfidence, dataFetchedAt, severity
         case activeLimit, error, local, costKnown, costCurrency, costSource, costEstimated, costKind
         case credits, creditsUnlimited, limitResets, limitResetExpiresAt
-        case limitResetsExpiring
+        case limitResetsExpiring, limitResetAvailableAt
         case modelWindows
     }
 
@@ -124,6 +127,7 @@ struct UsageItem: Codable, Identifiable, Hashable {
         limitResets = try c.decodeIfPresent(Int.self, forKey: .limitResets)
         limitResetExpiresAt = try c.decodeIfPresent(Date.self, forKey: .limitResetExpiresAt)
         limitResetsExpiring = try c.decodeIfPresent([Date].self, forKey: .limitResetsExpiring) ?? []
+        limitResetAvailableAt = try c.decodeIfPresent(Date.self, forKey: .limitResetAvailableAt)
     }
 
     var id: String { "\(group)/\(label)" }

@@ -136,6 +136,37 @@ final class UsageSnapshotTests: XCTestCase {
         XCTAssertEqual(limitResetsTitle(it), "ไม่เหลือใบรีเซ็ตลิมิต")
     }
 
+    /// ใบรีเซ็ตของ Claude เป็นใบต่อสัปดาห์ ใช้แล้วรอรอบหน้า — พูดแค่ "ไม่เหลือ"
+    /// อ่านเหมือนหมดแล้วหมดเลย ทั้งที่สิ่งที่อยากรู้คือ "ได้คืนเมื่อไหร่"
+    func testASpentWeeklyResetSaysWhenItComesBack() {
+        let now = Date(timeIntervalSince1970: 1_789_000_000)
+        let back = now.addingTimeInterval(3600 * 24 * 3)
+        var it = UsageItem(group: "Claude Code", label: "default", window: "5 ชม.")
+        it.limitResets = 0
+        it.limitResetAvailableAt = back
+        XCTAssertEqual(limitResetsTitle(it, now: now),
+                       "ใช้ใบรีเซ็ตแล้ว · ได้คืนใน \(countdownText(to: back, from: now))")
+    }
+
+    /// ไม่รู้ว่าได้คืนวันไหนก็ยังต้องบอกว่าตอนนี้ไม่มี
+    func testAZeroWithoutADateStillSaysNone() {
+        var it = UsageItem(group: "Claude Code", label: "default", window: "5 ชม.")
+        it.limitResets = 0
+        XCTAssertEqual(limitResetsTitle(it), "ไม่เหลือใบรีเซ็ตลิมิต")
+    }
+
+    func testTheReturnDateIsDecodedFromTheSnapshot() {
+        let json = """
+        {"generated":"2026-09-24T08:00:00Z","items":[
+          {"group":"Claude Code","label":"default","window":"5 ชม.",
+           "tokens":0,"calls":0,"weekTokens":0,
+           "limitResets":0,"limitResetAvailableAt":"2026-10-01T00:00:00Z"}]}
+        """.data(using: .utf8)!
+        let snap = try! UsageSnapshot.decoder().decode(UsageSnapshot.self, from: json)
+        XCTAssertEqual(snap.items[0].limitResetAvailableAt,
+                       ISO8601DateFormatter().date(from: "2026-10-01T00:00:00Z"))
+    }
+
     /// แต่ละบรรทัดต้องอ่านออกว่าเป็น "วันหมดอายุของใบ" ไม่ใช่ "เวลาที่ลิมิตจะรีเซ็ต"
     func testEachLineReadsAsAnExpiryNotAReset() {
         let now = Date(timeIntervalSince1970: 1_789_000_000)

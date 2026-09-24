@@ -72,24 +72,38 @@ class GateTest(unittest.TestCase):
         self.calls = []
         self.saved = (engine._liveu.fetch_utilization,
                       engine._liveu.cached_live_utilization,
-                      engine._util.read_utilization)
+                      engine._util.read_utilization,
+                      engine._clilive.live)
         engine._liveu.fetch_utilization = lambda d, **k: self.calls.append("fetch")
         engine._liveu.cached_live_utilization = lambda d, **k: self.calls.append("livecache")
         engine._util.read_utilization = lambda d: None
+        # ห้ามสปอว์น CLI จริงในเทสต์ — ช้าและผลขึ้นกับบัญชีของเครื่องที่รัน
+        engine._clilive.live = lambda d, **k: self.calls.append("cli")
 
     def tearDown(self):
         (engine._liveu.fetch_utilization,
          engine._liveu.cached_live_utilization,
-         engine._util.read_utilization) = self.saved
+         engine._util.read_utilization,
+         engine._clilive.live) = self.saved
 
     def test_disabled_never_reaches_the_keychain_or_the_network(self):
         engine.account_utilization("/tmp/whatever", live_enabled=False)
         self.assertEqual(self.calls, [],
                          "ปิดอยู่แต่ยังเรียก live — นี่คือการแตะ credential โดยไม่ได้ขอ")
 
-    def test_enabled_still_asks_the_endpoint_first(self):
+    def test_disabled_never_spawns_the_cli_either(self):
+        """สปอว์น CLI ไม่ได้แตะ credential ของเรา แต่ก็ยังเป็นการออกเน็ตแทนผู้ใช้"""
+        engine.account_limit_resets("/tmp/whatever", live_enabled=False)
+        self.assertEqual(self.calls, [])
+
+    def test_enabled_asks_the_cli_before_the_endpoint(self):
+        """CLI ถือ auth ของมันเอง — ถามได้คำตอบก็ไม่ต้องแตะ Keychain เลย"""
         engine.account_utilization("/tmp/whatever", live_enabled=True)
-        self.assertEqual(self.calls[0], "fetch")
+        self.assertEqual(self.calls[0], "cli")
+
+    def test_the_endpoint_is_still_there_when_the_cli_has_nothing(self):
+        engine.account_utilization("/tmp/whatever", live_enabled=True)
+        self.assertIn("fetch", self.calls)
 
     def test_local_claude_cache_is_still_read_when_disabled(self):
         """ปิด live ไม่ได้แปลว่าเลิกแสดง % — แคชของ Claude Code เองไม่ใช้ credential"""
