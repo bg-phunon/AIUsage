@@ -335,6 +335,38 @@ def cached_live_utilization(config_dir: str, path: str = LIVE_CACHE_PATH) -> Opt
                        windows=windows)
 
 
+RESET_KEYS = ("juniper_tide", "cedar_ember")
+
+
+def reset_blocks(body) -> Optional[dict]:
+    """คัดเฉพาะก้อนใบรีเซ็ตออกจากคำตอบ — ไม่มีสักก้อนคือไม่ได้ข้อมูล"""
+    if not isinstance(body, dict):
+        return None
+    found = {k: body.get(k) for k in RESET_KEYS if isinstance(body.get(k), dict)}
+    return found or None
+
+
+def fetch_reset_blocks(config_dir: str, timeout: float = 3.5) -> Optional[dict]:
+    """ถามสถานะใบรีเซ็ตลิมิต — ส่ง at_wall=1 ได้เฉพาะตอนที่ชนเพดานจริงเท่านั้น
+
+    ก้อน juniper_tide / cedar_ember ไม่ได้มากับคำตอบปกติ server ส่งมาต่อเมื่อถูกขอ
+    · ผู้เรียกต้องเช็ก `clilive.at_wall()` ก่อน — ส่งตอนยังไม่ชนคือโกหก server
+    """
+    token = _read_token(config_dir)
+    if token is None:
+        return None
+    req = urllib.request.Request(USAGE_URL + "?at_wall=1", headers={
+        "Authorization": "Bearer " + token,
+        "anthropic-beta": OAUTH_BETA,
+        "Accept": "application/json",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return reset_blocks(json.load(resp))
+    except Exception:  # noqa: BLE001 — 401/429/เน็ตล่ม: ไม่รู้ก็คือไม่รู้
+        return None
+
+
 def fetch_utilization(config_dir: str, timeout: float = 3.5) -> Optional[Utilization]:
     """คืน Utilization สด (fetched_at = ตอนนี้) หรือ None ให้ผู้เรียกตกไปใช้แคช"""
     token = _read_token(config_dir)

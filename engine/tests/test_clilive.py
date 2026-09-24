@@ -327,6 +327,34 @@ class WarmTest(unittest.TestCase):
                         "สี่บัญชีเรียงกันคือ 0.8 วินาที — แปลว่ายังไม่ได้ถามพร้อมกัน")
 
 
+class AtWallTest(unittest.TestCase):
+    """server ส่งก้อนใบรีเซ็ตมาเฉพาะเมื่อ client บอกว่าชนเพดานแล้ว (`?at_wall=1`)
+
+    เราจึงถามได้ตอนที่มันเป็นความจริงเท่านั้น — ซึ่งบังเอิญเป็นตอนเดียวที่คนอยากรู้
+    """
+
+    @staticmethod
+    def util(*percents):
+        from aiusage.utilization import Utilization, Window
+        return Utilization(fetched_at=datetime.now(timezone.utc),
+                           windows=[Window(kind="session", percent=p, resets_at=None,
+                                           severity="normal", scope=None, is_active=True)
+                                    for p in percents])
+
+    def test_a_full_window_is_the_wall(self):
+        self.assertTrue(clilive.at_wall(self.util(3.0, 100.0)))
+
+    def test_almost_full_is_close_enough(self):
+        self.assertTrue(clilive.at_wall(self.util(99.0)))
+
+    def test_room_left_is_not_the_wall(self):
+        self.assertFalse(clilive.at_wall(self.util(3.0, 98.0)))
+
+    def test_nothing_to_read_is_not_the_wall(self):
+        self.assertFalse(clilive.at_wall(None))
+        self.assertFalse(clilive.at_wall(self.util()))
+
+
 class UtilizationTest(unittest.TestCase):
     def test_the_cli_answer_becomes_windows(self):
         util = clilive.utilization({"limits": limits_rows()},

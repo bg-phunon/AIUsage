@@ -133,6 +133,18 @@ def reset_state(rate_limits) -> Optional[dict]:
     return None
 
 
+WALL_PCT = 99.0
+
+
+def at_wall(util) -> bool:
+    """หน้าต่างไหนสักอันแตะเพดานแล้วหรือยัง
+
+    server ส่งก้อนใบรีเซ็ตมาให้เฉพาะเมื่อ client บอกว่าชนเพดาน (`?at_wall=1`)
+    เราจึงถามได้เฉพาะตอนที่มันเป็นความจริง — ซึ่งบังเอิญเป็นตอนเดียวที่คนอยากรู้
+    """
+    return any(w.percent >= WALL_PCT for w in (getattr(util, "windows", None) or []))
+
+
 def utilization(rate_limits, fetched_at: datetime) -> Optional[Utilization]:
     """ก้อนจาก CLI → Utilization รูปเดียวกับที่ได้จาก endpoint"""
     windows = windows_from_limits((rate_limits or {}).get("limits"))

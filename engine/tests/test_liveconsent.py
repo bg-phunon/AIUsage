@@ -113,6 +113,45 @@ class GateTest(unittest.TestCase):
         self.assertEqual(seen, ["/tmp/whatever"])
 
 
+class ResetGateTest(unittest.TestCase):
+    """ถาม server เรื่องใบรีเซ็ตเฉพาะตอนชนเพดานจริง
+
+    `?at_wall=1` คือการบอก server ว่า "ตอนนี้ชนแล้ว" — ส่งตอนที่ยังไม่ชนคือโกหก
+    และเป็นการแตะ Keychain เพิ่มโดยไม่ได้อะไรกลับมา
+    """
+
+    def setUp(self):
+        self.asked = []
+        self.saved = (engine._clilive.live, engine._liveu.fetch_reset_blocks)
+        engine._clilive.live = lambda d, **k: None
+        engine._liveu.fetch_reset_blocks = lambda d, **k: self.asked.append(d) or {
+            "juniper_tide": {"eligible": True, "available": True, "resets_per_week": 1}}
+
+    def tearDown(self):
+        engine._clilive.live, engine._liveu.fetch_reset_blocks = self.saved
+
+    @staticmethod
+    def util(percent):
+        from aiusage.utilization import Utilization, Window
+        from datetime import datetime, timezone
+        return Utilization(fetched_at=datetime.now(timezone.utc),
+                           windows=[Window(kind="session", percent=percent, resets_at=None,
+                                           severity="normal", scope=None, is_active=True)])
+
+    def test_nobody_is_asked_while_there_is_room_left(self):
+        self.assertIsNone(engine.account_limit_resets("/tmp/x", True, self.util(40.0)))
+        self.assertEqual(self.asked, [])
+
+    def test_at_the_wall_the_question_is_worth_asking(self):
+        state = engine.account_limit_resets("/tmp/x", True, self.util(100.0))
+        self.assertEqual(self.asked, ["/tmp/x"])
+        self.assertEqual(state["count"], 1)
+
+    def test_live_off_means_no_question_at_all(self):
+        self.assertIsNone(engine.account_limit_resets("/tmp/x", False, self.util(100.0)))
+        self.assertEqual(self.asked, [])
+
+
 class FlagTest(unittest.TestCase):
     """สวิตช์ในแอปส่งมาทาง argv ไม่ใช่การเขียน config.json
 

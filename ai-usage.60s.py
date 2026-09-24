@@ -462,18 +462,24 @@ def account_utilization(config_dir, live_enabled=True):
     return max(candidates, key=lambda u: u.fetched_at, default=None)
 
 
-def account_limit_resets(config_dir, live_enabled=False):
+def account_limit_resets(config_dir, live_enabled=False, util=None):
     """ใบรีเซ็ตลิมิตของบัญชีนี้ · None = ไม่ได้ข้อมูล ไม่ใช่ศูนย์
 
-    อ่านจากคำตอบที่ account_utilization ขอมาแล้ว (แคชเดียวกัน ไม่สปอว์นซ้ำ)
+    อ่านจากคำตอบที่ account_utilization ขอมาแล้วก่อน (แคชเดียวกัน ไม่สปอว์นซ้ำ)
+    CLI ไม่เคยแนบก้อนนี้มาให้ — ทางเดียวที่ server ยอมส่งคือถามตรงๆ พร้อม
+    `at_wall=1` ซึ่งพูดได้เฉพาะตอนชนเพดานจริง จึงถามเฉพาะตอนนั้น
     """
     if not live_enabled:
         return None
     entry = _clilive.live(config_dir)
-    return _clilive.reset_state((entry or {}).get("result"))
+    state = _clilive.reset_state((entry or {}).get("result"))
+    if state is not None or not _clilive.at_wall(util):
+        return state
+    return _clilive.reset_state(_liveu.fetch_reset_blocks(config_dir))
 
 
 def claude_account_stats(acc, live_enabled=False):
+    util = account_utilization(acc["dir"], live_enabled)
     since = now_utc() - timedelta(days=WEEK_DAYS)
     entries = claude_entries(acc["dir"], since)
     blk = current_block(entries)
@@ -486,8 +492,8 @@ def claude_account_stats(acc, live_enabled=False):
         "models": sorted({m.split("-")[1] for _, _, m in entries[-40:] if m.count("-") >= 1}),
         "plan": account_plan(acc["dir"]),
         "budget5hAuto": calibrate_budget5h(entries, hits),
-        "utilization": account_utilization(acc["dir"], live_enabled),
-        "limitResets": account_limit_resets(acc["dir"], live_enabled),
+        "utilization": util,
+        "limitResets": account_limit_resets(acc["dir"], live_enabled, util),
         "lastActivity": entries[-1][0] if entries else None,
         "costKnown": costs_known(entries),
     }
