@@ -13,6 +13,8 @@ enum Freshness: Equatable {
 enum Certainty: Equatable {
     case exact
     case atLeast
+    /// คำนวณจาก token ที่ใช้ไปเทียบกับค่าที่จดมา — อาจเกินหรือขาด ต่างจาก atLeast
+    case estimate
     case unknown
 }
 
@@ -32,6 +34,7 @@ func freshness(snapshotAge: TimeInterval?, wokeRecently: Bool) -> Freshness {
 func certainty(confidence: String?) -> Certainty {
     switch confidence {
     case "lower_bound": return .atLeast
+    case "estimated": return .estimate
     case "unsure": return .unknown
     default: return .exact
     }

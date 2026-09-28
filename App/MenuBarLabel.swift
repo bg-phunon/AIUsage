@@ -47,12 +47,15 @@ func menuBarSegments(snapshot: UsageSnapshot, now: Date, wokeRecently: Bool,
     let definitions: [(String, String, String)] = [
         ("Claude Code", "claude", "#E49A54"),
         ("Qwen Cloud", "qwen", "#5C9DED"),
+        ("Alibaba Cloud", "qwen", "#3CBFB4"),
         ("GLM", "zai", "#B087E8"),
         ("Codex", "codex", "#67C587"),
     ]
     func windowText(_ pct: Double?, _ conf: String?) -> String? {
-        guard state != .dead, let pct, certainty(confidence: conf) != .unknown else { return nil }
-        return "\(Int(pct.rounded()))%"
+        let sure = certainty(confidence: conf)
+        guard state != .dead, let pct, sure != .unknown else { return nil }
+        // ค่าประมาณต้องดูออกว่าไม่ใช่เลขจากผู้ให้บริการ
+        return (sure == .estimate ? "~" : "") + "\(Int(pct.rounded()))%"
     }
     var all: [MenuBarSegment] = []
     for (group, symbol, color) in definitions {
@@ -62,8 +65,14 @@ func menuBarSegments(snapshot: UsageSnapshot, now: Date, wokeRecently: Bool,
             .sorted { $0.label < $1.label }
         var made: [MenuBarSegment] = []
         for item in candidates {
-            let session = windowText(item.pct, item.confidence)
+            var session = windowText(item.pct, item.confidence)
             let week = windowText(item.weekPct, item.weekConfidence ?? item.confidence)
+            if session == nil && week == nil {
+                // ถังที่ไม่มีหน้าต่าง 5h/7d เลย (แผนรายเดือนของ Alibaba Cloud) — หน้าต่าง
+                // ของตัวเองคือเลขเดียวที่มี ดีกว่าให้แถบเหลือแค่จำนวน token
+                session = item.modelWindows.lazy
+                    .compactMap { windowText($0.pct, $0.confidence) }.first
+            }
             if session == nil && week == nil {
                 // เห็นทุกบัญชี ccs คือเหตุผลข้อแรกของแอปนี้ — บัญชีที่มี traffic จริง
                 // แต่แคชโควตาเก่าจนไม่มี % ต้องยังได้ที่บนแถบเป็นขีด ไม่ใช่ล่องหน

@@ -58,5 +58,41 @@ class LocalHostTest(unittest.TestCase):
         self.assertFalse(buckets.is_local_host("api.anthropic.com"))
 
 
+
+TOKEN_PLAN = "https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic"
+
+
+class SharedHostTest(unittest.TestCase):
+    """สองโปรไฟล์ host เดียวกันคนละ token = คนละโควตา ต้องไม่ชื่อชนกัน"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        write_settings(self.tmp.name, "qwenc.settings.json", TOKEN_PLAN,
+                       ["qwen3.8-max", "qwen3.8-max", "deepseek-v4-flash-0731", "deepseek-v4-flash-0731"])
+        write_settings(self.tmp.name, "albb.settings.json", TOKEN_PLAN, ["qwen3-coder-plus"] * 4)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_colliding_names_get_profile_suffix(self):
+        table = buckets.load_bucket_table(self.tmp.name)
+        self.assertEqual(table["qwen3-coder-plus"].name, "Qwen Cloud · albb")
+        self.assertEqual(table["qwen3.8-max"].name, "Qwen Cloud · qwenc")
+        self.assertNotEqual(table["qwen3-coder-plus"].key, table["qwen3.8-max"].key)
+
+    def test_custom_name_frees_the_default_for_the_other(self):
+        table = buckets.load_bucket_table(self.tmp.name, {"albb": "Alibaba Cloud"})
+        self.assertEqual(table["qwen3-coder-plus"].name, "Alibaba Cloud")
+        self.assertEqual(table["qwen3.8-max"].name, "Qwen Cloud")
+
+    def test_both_are_token_plans(self):
+        table = buckets.load_bucket_table(self.tmp.name, {"albb": "Alibaba Cloud"})
+        self.assertTrue(buckets.is_token_plan(table["qwen3-coder-plus"]))
+        self.assertTrue(buckets.is_token_plan(table["qwen3.8-max"]))
+
+    def test_garbage_names_config_is_ignored(self):
+        table = buckets.load_bucket_table(self.tmp.name, ["not", "a", "dict"])
+        self.assertEqual(table["qwen3-coder-plus"].name, "Qwen Cloud · albb")
+
 if __name__ == "__main__":
     unittest.main()

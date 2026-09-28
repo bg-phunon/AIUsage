@@ -139,5 +139,170 @@ class BucketRowsQwenHitTest(unittest.TestCase):
         self.assertGreater(rows[0]["weekTokens"], 0)
 
 
+
+ALBB = Bucket("albb", "Alibaba Cloud", "token-plan.ap-southeast-1.maas.aliyuncs.com", False)
+QWENC = Bucket("qwenc", "Qwen Cloud", "token-plan.ap-southeast-1.maas.aliyuncs.com", False)
+TWO_PLANS = {"deepseek-v4-flash-0731": QWENC, "qwen3-coder-plus": ALBB}
+
+
+class TwoTokenPlansTest(BucketRowsQwenHitTest):
+    """สองบัญชี token-plan — 429 ของใบหนึ่งห้ามทำให้อีกใบขึ้น 100%"""
+
+    def write_files(self, files):
+        proj = os.path.join(self.tmp.name, "projects", "p")
+        os.makedirs(proj, exist_ok=True)
+        for name, records in files.items():
+            with open(os.path.join(proj, name), "w", encoding="utf-8") as fh:
+                for rec in records:
+                    fh.write(json.dumps(rec) + "\n")
+
+    def by_group(self, rows):
+        return {r["group"]: r for r in rows}
+
+    def test_hit_goes_to_the_session_model_bucket(self):
+        reset = self.now + timedelta(days=2)
+        self.write_files({
+            "a.jsonl": [usage_record(self.now - timedelta(hours=2), "qwen3-coder-plus"),
+                        hit_record(self.now - timedelta(hours=1), reset)],
+            "q.jsonl": [usage_record(self.now - timedelta(hours=1), "deepseek-v4-flash-0731")],
+        })
+        rows = self.by_group(engine.bucket_rows(self.acc, TWO_PLANS))
+        self.assertEqual(rows["Alibaba Cloud"]["weekPct"], 100.0)
+        self.assertIsNone(rows["Qwen Cloud"]["weekPct"])
+
+    def test_hit_before_first_model_uses_next_model(self):
+        reset = self.now + timedelta(days=2)
+        self.write_files({"a.jsonl": [
+            hit_record(self.now - timedelta(hours=2), reset),
+            usage_record(self.now - timedelta(hours=1), "deepseek-v4-flash-0731"),
+        ]})
+        rows = self.by_group(engine.bucket_rows(self.acc, TWO_PLANS))
+        self.assertEqual(rows["Qwen Cloud"]["weekPct"], 100.0)
+        self.assertNotIn("Alibaba Cloud", rows)
+
+    def test_orphan_hit_is_not_guessed_when_two_plans(self):
+        """ไม่รู้ว่าของใคร + มีสองใบ = อย่าประกาศว่าใบไหนเต็ม"""
+        reset = self.now + timedelta(days=2)
+        self.write_files({"a.jsonl": [hit_record(self.now - timedelta(hours=1), reset)]})
+        self.assertEqual(engine.bucket_rows(self.acc, TWO_PLANS), [])
+
+    def test_anchor_without_profile_is_ignored_when_two_plans(self):
+        self.write_files({"a.jsonl": [
+            usage_record(self.now - timedelta(hours=1), "qwen3-coder-plus"),
+            usage_record(self.now - timedelta(minutes=50), "deepseek-v4-flash-0731"),
+        ]})
+        rows = self.by_group(engine.bucket_rows(self.acc, TWO_PLANS, self.anchor()))
+        self.assertIsNone(rows["Qwen Cloud"]["weekPct"])
+        self.assertIsNone(rows["Alibaba Cloud"]["weekPct"])
+
+    def test_anchor_with_profile_hits_only_that_bucket(self):
+        self.write_files({"a.jsonl": [
+            usage_record(self.now - timedelta(hours=1), "qwen3-coder-plus"),
+            usage_record(self.now - timedelta(minutes=50), "deepseek-v4-flash-0731"),
+        ]})
+        anchor = dict(self.anchor(), profile="qwenc")
+        rows = self.by_group(engine.bucket_rows(self.acc, TWO_PLANS, anchor))
+        self.assertEqual(rows["Qwen Cloud"]["weekPct"], 4.8)
+        self.assertIsNone(rows["Alibaba Cloud"]["weekPct"])
+
+    # เทสต์ของคลาสแม่ใช้ TABLE ถังเดียว — ไม่ต้องรันซ้ำที่นี่
+    test_exhausted_row_survives_without_traffic = None
+    test_expired_hit_without_traffic_yields_nothing = None
+    test_data_fetched_at_is_hit_time_not_scan_time = None
+    test_dashboard_anchor_shows_as_lower_bound = None
+    test_anchor_does_not_conjure_buckets = None
+    test_expired_anchor_is_ignored = None
+    test_active_hit_beats_anchor = None
+    test_hit_applies_to_bucket_with_traffic = None
+
+
+class MonthlyPlanTest(TwoTokenPlansTest):
+    """แผน Alibaba Cloud นับรายเดือน — ไปอยู่ modelWindows ป้าย 1mo ไม่ปนกับ 5h/7d"""
+
+    def month_anchor(self, used=0.03, reset_in_days=30):
+        return {"albb": {"points": [{"usedPct": used, "at": self.now - timedelta(hours=1)}],
+                         "resetAt": self.now + timedelta(days=reset_in_days)}}
+
+    def traffic(self):
+        self.write_files({"a.jsonl": [
+            usage_record(self.now - timedelta(minutes=30), "qwen3-coder-plus")]})
+
+    def test_month_anchor_is_lower_bound_window(self):
+        self.traffic()
+        row = engine.bucket_rows(self.acc, TWO_PLANS, None, self.month_anchor())[0]
+        self.assertIsNone(row["pct"])
+        self.assertIsNone(row["weekPct"])
+        [mw] = row["modelWindows"]
+        self.assertEqual((mw["label"], mw["pct"], mw["confidence"]), ("1mo", 0.03, "lower_bound"))
+        self.assertEqual(mw["resetAt"], iso_z(self.now + timedelta(days=30)))
+
+    def test_month_anchor_only_hits_its_profile(self):
+        self.write_files({"a.jsonl": [
+            usage_record(self.now - timedelta(minutes=30), "deepseek-v4-flash-0731")]})
+        row = engine.bucket_rows(self.acc, TWO_PLANS, None, self.month_anchor())[0]
+        self.assertEqual(row["modelWindows"], [])
+
+    def test_expired_month_anchor_is_ignored(self):
+        self.traffic()
+        row = engine.bucket_rows(self.acc, TWO_PLANS, None, self.month_anchor(reset_in_days=-1))[0]
+        self.assertEqual(row["modelWindows"], [])
+
+    def test_month_429_beats_anchor(self):
+        reset = self.now + timedelta(days=10)
+        self.write_files({"a.jsonl": [
+            usage_record(self.now - timedelta(hours=1), "qwen3-coder-plus"),
+            hit_record(self.now - timedelta(minutes=10), reset, window="1-month")]})
+        row = engine.bucket_rows(self.acc, TWO_PLANS, None, self.month_anchor())[0]
+        [mw] = row["modelWindows"]
+        self.assertEqual((mw["pct"], mw["confidence"]), (100.0, "valid"))
+        self.assertEqual(row["pctSource"], "official")
+
+    def test_parse_plan_anchors_skips_garbage(self):
+        parsed = engine.parse_plan_anchors({
+            "albb": {"usedPct": 1.5, "at": "2026-09-27T13:35:18Z", "resetAt": "2026-10-27T16:00:00Z"},
+            "bad": {"usedPct": "x"}, "worse": 3})
+        self.assertEqual(list(parsed), ["albb"])
+        self.assertEqual(len(parsed["albb"]["points"]), 1, "แบบเก่าก้อนเดียว = จุดเดียว")
+        self.assertEqual(engine.parse_plan_anchors(None), {})
+
+    def test_points_are_sorted(self):
+        parsed = engine.parse_plan_anchors({"albb": {"resetAt": "2026-10-27T16:00:00Z", "points": [
+            {"usedPct": 1.31, "at": "2026-09-28T07:23:00Z"},
+            {"usedPct": 0.03, "at": "2026-09-27T13:35:18Z"}, "junk"]}})
+        self.assertEqual([p["usedPct"] for p in parsed["albb"]["points"]], [0.03, 1.31])
+
+    def two_points(self):
+        t1, t2 = self.now - timedelta(hours=10), self.now - timedelta(hours=2)
+        return t1, t2, {"albb": {"resetAt": self.now + timedelta(days=20), "points": [
+            {"usedPct": 1.0, "at": t1}, {"usedPct": 3.0, "at": t2}]}}
+
+    def test_two_points_give_estimate_from_tokens_since_last(self):
+        """2% ต่อ 1000 token ระหว่างจุด → อีก 500 token หลังจุดล่าสุด = 3% + 1%"""
+        self.traffic()
+        t1, t2, anchors = self.two_points()
+        series = {"albb": [(t1 + timedelta(hours=1), 1000), (t2 + timedelta(minutes=5), 500)]}
+        row = engine.bucket_rows(self.acc, TWO_PLANS, None, anchors, series)[0]
+        [mw] = row["modelWindows"]
+        self.assertEqual((mw["pct"], mw["confidence"]), (4.0, "estimated"))
+        self.assertEqual(row["dataFetchedAt"], iso_z(t2))
+
+    def test_no_tokens_between_points_falls_back_to_lower_bound(self):
+        self.traffic()
+        _, _, anchors = self.two_points()
+        row = engine.bucket_rows(self.acc, TWO_PLANS, None, anchors, {"albb": []})[0]
+        [mw] = row["modelWindows"]
+        self.assertEqual((mw["pct"], mw["confidence"]), (3.0, "lower_bound"))
+
+    def test_estimate_is_capped_at_100(self):
+        t1, t2, anchors = self.two_points()
+        series = [(t1 + timedelta(hours=1), 10), (t2 + timedelta(minutes=5), 10_000)]
+        self.assertEqual(engine.estimate_plan_pct(anchors["albb"]["points"], series, self.now), 100.0)
+
+    test_hit_goes_to_the_session_model_bucket = None
+    test_hit_before_first_model_uses_next_model = None
+    test_orphan_hit_is_not_guessed_when_two_plans = None
+    test_anchor_without_profile_is_ignored_when_two_plans = None
+    test_anchor_with_profile_hits_only_that_bucket = None
+
 if __name__ == "__main__":
     unittest.main()

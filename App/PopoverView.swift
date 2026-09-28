@@ -495,6 +495,7 @@ struct PopoverView: View {
         switch group {
         case "Claude Code": return .orange
         case "Qwen Cloud": return .blue
+        case "Alibaba Cloud": return .teal
         case "GLM": return .purple
         case "Codex": return .green
         default: return .gray
@@ -513,6 +514,10 @@ struct PopoverView: View {
 
     private func pctText(_ pct: Double?, _ certaintyValue: Certainty) -> String {
         guard let pct, certaintyValue != .unknown else { return "—" }
+        if certaintyValue == .estimate {
+            // ค่าประมาณเล็กๆ ปัดเป็น 0% แล้วดูเหมือนไม่ได้ใช้ — โชว์ทศนิยมตัวเดียวตอนต่ำกว่า 10
+            return "~" + String(format: pct < 10 ? "%.1f%%" : "%.0f%%", pct)
+        }
         return String(format: "%.0f%%", pct)
     }
 
@@ -537,6 +542,7 @@ struct PopoverView: View {
                 if let pct = window.pct, window.sure != .unknown {
                     let known = geometry.size.width * min(1, max(0, pct / 100))
                     Capsule().fill(model.designStyle == .colorful ? providerColorForTint(tint) : tint)
+                        .opacity(window.sure == .estimate ? 0.55 : 1)
                         .frame(width: known)
                     if window.sure == .atLeast {
                         // lower_bound สื่อด้วยโซนจางนี้อย่างเดียว ห้ามเติมเครื่องหมาย ≥ กลับมา
@@ -673,7 +679,7 @@ struct ProviderLogo: View {
         case "Claude Code": return "claude"
         case "Codex": return "codex"
         case "GLM": return "zai"
-        case "Qwen Cloud": return "qwen"
+        case "Qwen Cloud", "Alibaba Cloud": return "qwen"
         default: return nil
         }
     }

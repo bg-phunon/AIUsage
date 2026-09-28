@@ -1053,19 +1053,33 @@ def with_contract(item):
 
 
 
-def token_plan_hits(config_dir, since):
-    """หา 429 ของ token-plan (Qwen Cloud) → {'5h': reset_dt, 'week': reset_dt}
+_MODEL_FIELD = re.compile(r'"model"\s*:\s*"([^"]+)"')
+
+
+def token_plan_hits(config_dir, since, table=None):
+    """หา 429 ของ token-plan → ({bucket_key: {'5h': reset_dt, 'week': reset_dt}}, seen_at)
 
     กรองเฉพาะ record ที่เป็น API error จริง (error=="rate_limit", ไม่ transient)
     ข้อความเดียวกันที่ถูกเล่าซ้ำในบทสนทนาจะไม่ใช่ record แบบนี้ จึงไม่ปนเข้ามา
 
-    คืน (merged, seen_at): merged คือเวลารีเซ็ตล่าสุดต่อหน้าต่าง ส่วน seen_at คือ
-    เวลาที่เห็นคำประกาศครั้งล่าสุด — เป็นคนละเรื่องกับเวลาที่สแกนเจอ
+    record 429 มี model เป็น ``<synthetic>`` บอกไม่ได้ว่ามาจากโปรไฟล์ไหน — หลาย
+    โปรไฟล์ใช้ token-plan เดียวกันคนละบัญชีได้ (qwenc/albb) จึงยืมโมเดลจริงตัวล่าสุด
+    ใน session เดียวกัน (ไม่มีก่อนหน้าก็ใช้ตัวถัดไป) · ระบุไม่ได้ = key ``None``
+
+    seen_at คือเวลาที่เห็นคำประกาศครั้งล่าสุด ต่อถัง ต่อหน้าต่าง — คนละเรื่องกับเวลาที่สแกนเจอ
     """
+    table = table or {}
     pattern = os.path.join(config_dir, "projects", "**", "*.jsonl")
     cutoff = since.timestamp() - 3600
-    found = []
+    found = {}
     seen_at = {}
+
+    def owner(model):
+        if not _buckets.is_real_model(model):
+            return None
+        bucket = _buckets.bucket_for_model(model, table)
+        return bucket.key if _buckets.is_token_plan(bucket) else None
+
     for path in glob.iglob(pattern, recursive=True):
         if "/subagents/" in path or "/tool-results/" in path:
             continue
@@ -1075,9 +1089,17 @@ def token_plan_hits(config_dir, since):
             fh = open(path, "r", encoding="utf-8", errors="ignore")
         except OSError:
             continue
+        last_owner, pending = None, []
         with fh:
             for line in fh:
                 if "token-plan" not in line or '"rate_limit"' not in line:
+                    m = _MODEL_FIELD.search(line) if '"model"' in line else None
+                    if m and _buckets.is_real_model(m.group(1)):
+                        last_owner = owner(m.group(1))
+                        for hit, ts in pending:
+                            found.setdefault(last_owner, []).append(hit)
+                            _mark_seen(seen_at, last_owner, hit[0], ts)
+                        pending = []
                     continue
                 try:
                     rec = json.loads(line)
@@ -1093,12 +1115,23 @@ def token_plan_hits(config_dir, since):
                 if isinstance(text, list):
                     text = " ".join(b.get("text", "") for b in text if isinstance(b, dict))
                 hit = _q429.parse_hit(text, ts)
-                if hit:
-                    found.append(hit)
-                    window = hit[0]
-                    if window not in seen_at or ts > seen_at[window]:
-                        seen_at[window] = ts
-    return _q429.merge_hits(found), seen_at
+                if not hit:
+                    continue
+                if last_owner is None:
+                    pending.append((hit, ts))
+                else:
+                    found.setdefault(last_owner, []).append(hit)
+                    _mark_seen(seen_at, last_owner, hit[0], ts)
+        for hit, ts in pending:
+            found.setdefault(None, []).append(hit)
+            _mark_seen(seen_at, None, hit[0], ts)
+    return {key: _q429.merge_hits(hits) for key, hits in found.items()}, seen_at
+
+
+def _mark_seen(seen_at, key, window, ts):
+    slot = seen_at.setdefault(key, {})
+    if window not in slot or ts > slot[window]:
+        slot[window] = ts
 
 
 def parse_qwen_anchor(raw):
@@ -1115,10 +1148,84 @@ def parse_qwen_anchor(raw):
     reset = parse_ts(raw.get("resetAt"))
     if not isinstance(used, (int, float)) or at is None or reset is None:
         return None
-    return {"usedPct": float(used), "at": at, "resetAt": reset}
+    profile = raw.get("profile")
+    return {"usedPct": float(used), "at": at, "resetAt": reset,
+            "profile": profile if isinstance(profile, str) and profile else None}
 
 
-def bucket_rows(acc, table, qwen_anchor=None):
+def parse_plan_anchors(raw):
+    """จุดยึดรายเดือนของ token-plan ต่อโปรไฟล์ ccs — จดมาจาก console ของ Model Studio
+
+    รูปแบบ: {"albb": {"resetAt": "...Z", "points": [{"usedPct": 0.03, "at": "...Z"}, ...]}}
+    (แบบเก่า {"usedPct", "at", "resetAt"} ก้อนเดียวยังใช้ได้ = จุดเดียว)
+    console ใช้ cookie (GetTokenPlanAccountDetail) เอนจินห้ามแตะ จึงต้องจดมาเอง
+    แผน Alibaba Cloud Pro นับเป็นเดือน ไม่มีหน้าต่าง 5 ชม./สัปดาห์แบบ Qwen Cloud
+
+    คืน {profile: {"resetAt", "points": [{"usedPct","at"}] เรียงตามเวลา}}
+    """
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    for profile, entry in raw.items():
+        if not isinstance(entry, dict):
+            continue
+        reset = parse_ts(entry.get("resetAt"))
+        items = entry.get("points")
+        if not isinstance(items, list):
+            items = [entry]
+        points = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            used = item.get("usedPct")
+            at = parse_ts(item.get("at"))
+            if isinstance(used, (int, float)) and at is not None:
+                points.append({"usedPct": float(used), "at": at})
+        if reset is not None and points:
+            points.sort(key=lambda p: p["at"])
+            out[profile] = {"resetAt": reset, "points": points}
+    return out
+
+
+def estimate_plan_pct(points, series, now):
+    """ประมาณ % ปัจจุบันจากจุดที่จดไว้ + token ที่ใช้หลังจุดล่าสุด
+
+    อัตรา %/token วัดจากจุดแรกถึงจุดสุดท้ายในรอบเดียวกัน (ช่วงยิ่งยาวยิ่งนิ่ง) แล้ว
+    คูณกับ token หลังจุดล่าสุด · เป็นแค่การประมาณ — Alibaba ไม่ประกาศสูตร token →
+    credit และแต่ละโมเดล/ช่วงเวลา (ลดราคากลางคืน) กินไม่เท่ากัน จุดใหม่ที่จดมา
+    จะดึงอัตรากลับมาตรงเอง · วัดอัตราไม่ได้ (จุดเดียว/token เป็นศูนย์) = None
+    series: [(ts, tokens)] ของถังนี้
+    """
+    if len(points) < 2:
+        return None
+    first, last = points[0], points[-1]
+    delta = last["usedPct"] - first["usedPct"]
+    between = sum(tok for ts, tok in series if first["at"] <= ts < last["at"])
+    if delta <= 0 or between <= 0:
+        return None
+    after = sum(tok for ts, tok in series if last["at"] <= ts <= now)
+    return min(100.0, last["usedPct"] + after * delta / between)
+
+
+def plan_token_series(accounts, table, keys, since):
+    """token ต่อ record ของถัง token-plan ที่ต้องประมาณ — รวมทุกบัญชี Claude
+
+    โปรไฟล์ ccs แบบ api รันได้จากทุกบัญชี โควตาใบเดียวกันจึงต้องนับรวม
+    """
+    series = {key: [] for key in keys}
+    if not series:
+        return series
+    for acc in accounts:
+        for ts, usage, model in claude_entries(acc["dir"], since):
+            if not _buckets.is_real_model(model):
+                continue
+            key = _buckets.bucket_for_model(model, table).key
+            if key in series:
+                series[key].append((ts, total_tokens(usage)))
+    return series
+
+
+def bucket_rows(acc, table, qwen_anchor=None, plan_anchors=None, plan_series=None):
     """แยก traffic ที่ไม่ใช่ Anthropic ตาม endpoint ของถังโควตา"""
     since = now_utc() - timedelta(days=WEEK_DAYS)
     entries = claude_entries(acc["dir"], since)
@@ -1132,17 +1239,36 @@ def bucket_rows(acc, table, qwen_anchor=None):
         grouped.setdefault(bucket, []).append(row)
 
     now = now_utc()
-    hits, hits_seen_at = token_plan_hits(acc["dir"], since)
+    hits_by_key, seen_by_key = token_plan_hits(acc["dir"], since, table)
+    token_plans = {b for b in table.values() if _buckets.is_token_plan(b)}
+    # 429 ที่ระบุเจ้าของไม่ได้ เชื่อได้เฉพาะตอนมี token-plan ใบเดียว — หลายใบแล้ว
+    # เดาผิดคือประกาศว่าอีกบัญชีเต็ม 100% ทั้งที่ยังใช้ได้
+    sole = next(iter(token_plans)).key if len(token_plans) == 1 else None
+
+    def hits_for(bucket):
+        merged = dict(hits_by_key.get(bucket.key) or {})
+        seen = dict(seen_by_key.get(bucket.key) or {})
+        if bucket.key == sole:
+            for window, reset in (hits_by_key.get(None) or {}).items():
+                if window not in merged or reset > merged[window]:
+                    merged[window] = reset
+            for window, ts in (seen_by_key.get(None) or {}).items():
+                if window not in seen or ts > seen[window]:
+                    seen[window] = ts
+        return merged, seen
 
     # ถังที่ exhausted ห้ามหายเพียงเพราะไม่มี traffic — โควตาเต็มแปลว่าใช้ไม่ได้
     # แปลว่าจะไม่มี traffic ใหม่โดยธรรมชาติ ยิ่งเต็มนานยิ่งเสี่ยงหายจากจอ
     # (anchor ไม่เสกถัง — bucket_rows รันทุกบัญชี ถ้าเสกจะได้ถัง Qwen ซ้ำ
     # ทุกบัญชีทั้งที่แผนมีใบเดียว เคยพลาดมาแล้ว: 4.8% โผล่ 4 แถว)
-    anchor_active = qwen_anchor is not None and qwen_anchor["resetAt"] > now
-    if any(reset > now for reset in hits.values()):
-        for bucket in set(table.values()):
-            if bucket.name == "Qwen Cloud":
-                grouped.setdefault(bucket, [])
+    for bucket in token_plans:
+        if any(reset > now for reset in hits_for(bucket)[0].values()):
+            grouped.setdefault(bucket, [])
+
+    # anchor ไม่ระบุโปรไฟล์ = ใช้ได้เฉพาะตอนมี token-plan ใบเดียว
+    anchor_key = None
+    if qwen_anchor is not None and qwen_anchor["resetAt"] > now:
+        anchor_key = qwen_anchor.get("profile") or sole
 
     out = []
     for bucket, rows in sorted(grouped.items(), key=lambda pair: pair[0].name):
@@ -1158,7 +1284,9 @@ def bucket_rows(acc, table, qwen_anchor=None):
         conf = week_conf = None
         source = None
         fetched_at = None
-        if bucket.name == "Qwen Cloud":
+        model_windows = []
+        if _buckets.is_token_plan(bucket):
+            hits, hits_seen_at = hits_for(bucket)
             hit_5h = hits.get("5h")
             hit_week = hits.get("week")
             if hit_5h and hit_5h > now:
@@ -1174,7 +1302,30 @@ def bucket_rows(acc, table, qwen_anchor=None):
             if pct is not None or week_pct is not None:
                 source = "official"
             # ไม่มี 429 สดๆ ให้เชื่อ → ใช้จุดยึดจากแดชบอร์ด (lower bound ไม่ใช่ทางการ)
-            if week_pct is None and anchor_active and now >= qwen_anchor["at"]:
+            # หน้าต่างรายเดือน (แผน Alibaba Cloud) ไม่มีช่องใน pct/weekPct — ไปอยู่
+            # modelWindows ที่มีป้ายและเวลารีเซ็ตของตัวเอง
+            hit_month = hits.get("month")
+            month = (plan_anchors or {}).get(bucket.key)
+            if hit_month and hit_month > now:
+                model_windows.append({"label": "1mo", "pct": 100.0, "confidence": "valid",
+                                      "resetAt": hit_month.isoformat().replace("+00:00", "Z")})
+                source = "official"
+            elif month and month["resetAt"] > now:
+                points = [p for p in month["points"] if p["at"] <= now]
+                if points:
+                    last = points[-1]
+                    est = estimate_plan_pct(points, (plan_series or {}).get(bucket.key, []), now)
+                    # ประมาณได้ = "estimated" (อาจเกินหรือขาด) · ไม่ได้ = ค่าจดล่าสุดซึ่งเป็น
+                    # lower bound แท้ (โควตามีแต่ใช้เพิ่ม) — ค่าประมาณห้ามต่ำกว่าค่าจด
+                    model_windows.append({
+                        "label": "1mo",
+                        "pct": round(max(est, last["usedPct"]), 2) if est is not None
+                               else min(100.0, last["usedPct"]),
+                        "confidence": "estimated" if est is not None else "lower_bound",
+                        "resetAt": month["resetAt"].isoformat().replace("+00:00", "Z")})
+                    if fetched_at is None:
+                        fetched_at = last["at"]
+            if week_pct is None and bucket.key == anchor_key and now >= qwen_anchor["at"]:
                 week_pct, week_conf = min(100.0, qwen_anchor["usedPct"]), "lower_bound"
                 fetched_at = qwen_anchor["at"]
                 if reset_at is None:
@@ -1207,6 +1358,7 @@ def bucket_rows(acc, table, qwen_anchor=None):
             "costCurrency": "USD" if known else None,
             "costSource": "anthropic_public_rate" if known else None,
             "costEstimated": known,
+            "modelWindows": model_windows,
         }))
     return out
 
@@ -1448,8 +1600,20 @@ def collect(live_override=None):
     live_enabled = effective_live_usage(cfg, live_override)
     state = read_json(STATE_PATH, {})
     items = []
-    bucket_table = _buckets.load_bucket_table()
+    bucket_table = _buckets.load_bucket_table(names=cfg.get("bucketNames"))
     now = now_utc()
+
+    # แผนรายเดือนที่มีจุดจดตั้งแต่สองจุดขึ้นไป → ต้องมี token ทั้งรอบไว้วัดอัตรา
+    plan_anchors = parse_plan_anchors(cfg.get("tokenPlanAnchors"))
+    need = {k: a for k, a in plan_anchors.items()
+            if len(a["points"]) >= 2 and a["resetAt"] > now}
+    try:
+        plan_series = plan_token_series(
+            [a for a in cfg.get("claude", []) if a.get("enabled", True) and a.get("dir")],
+            bucket_table, need,
+            min(a["points"][0]["at"] for a in need.values()) if need else now)
+    except Exception:  # noqa: BLE001
+        plan_series = {}
 
     # อุ่นแคชของทุกบัญชีพร้อมกันก่อนเข้าลูป — สปอว์น CLI เรียงกันทีละบัญชีกินเวลา
     # รวมเกิน 20 วินาที ซึ่งกินเพดาน 45 วินาทีของเอนจินไปครึ่งหนึ่งทั้งที่รอเฉยๆ
@@ -1532,7 +1696,8 @@ def collect(live_override=None):
         }))
         try:
             items.extend(bucket_rows(acc, bucket_table,
-                                     parse_qwen_anchor(cfg.get("qwenWeeklyAnchor"))))
+                                     parse_qwen_anchor(cfg.get("qwenWeeklyAnchor")),
+                                     plan_anchors, plan_series))
         except Exception:  # noqa: BLE001
             pass
 

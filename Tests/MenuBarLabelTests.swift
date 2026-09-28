@@ -175,6 +175,39 @@ final class MenuBarLabelTests: XCTestCase {
         XCTAssertEqual(segments.map(\.tag), ["de", "mo"], "โลโก้ซ้ำกันต้องมีป้ายบัญชี")
     }
 
+    /// token-plan สองบัญชีบน host เดียวกัน (qwenc/albb) — คนละโควตา ต้องได้คนละ segment
+    func testAlibabaCloudSitsBesideQwenCloud() {
+        let segments = menuBarSegments(snapshot: snapshot([groupItem("Qwen Cloud", "default", pct: 40),
+                                                           groupItem("Alibaba Cloud", "default", pct: 70)]),
+                                       now: now, wokeRecently: false, hidden: [], pinned: [])
+        XCTAssertEqual(segments.map(\.id), ["Qwen Cloud/default", "Alibaba Cloud/default"])
+        XCTAssertEqual(segments.map(\.assetName), ["qwen", "qwen"])
+        XCTAssertNotEqual(segments[0].color, segments[1].color, "โลโก้เดียวกัน สีต้องแยกให้ออก")
+    }
+
+    /// แผนรายเดือนไม่มี 5h/7d — หน้าต่าง 1mo ต้องขึ้นแถบแทนจำนวน token
+    func testMonthlyOnlyBucketShowsItsOwnWindow() {
+        var albb = UsageItem(group: "Alibaba Cloud", label: "default", window: "5 ชม.")
+        albb.weekTokens = 1_580_000
+        albb.modelWindows = [ModelWindow(label: "1mo", pct: 12.4, resetAt: now.addingTimeInterval(86400),
+                                         confidence: "lower_bound")]
+        let segments = menuBarSegments(snapshot: snapshot([albb]), now: now,
+                                       wokeRecently: false, hidden: [], pinned: [])
+        XCTAssertEqual(segments.first?.top, "12%")
+        XCTAssertNil(segments.first?.bottom)
+    }
+
+    /// ค่าประมาณจาก token ต้องมี ~ นำหน้า — ไม่ให้อ่านเป็นเลขทางการ
+    func testEstimatedWindowIsMarked() {
+        var albb = UsageItem(group: "Alibaba Cloud", label: "default", window: "5 ชม.")
+        albb.modelWindows = [ModelWindow(label: "1mo", pct: 1.6, resetAt: now.addingTimeInterval(86400),
+                                         confidence: "estimated")]
+        let segments = menuBarSegments(snapshot: snapshot([albb]), now: now,
+                                       wokeRecently: false, hidden: [], pinned: [])
+        XCTAssertEqual(segments.first?.top, "~2%")
+        XCTAssertEqual(certainty(confidence: "estimated"), .estimate)
+    }
+
     func testSingleAccountNeedsNoTag() {
         let segments = menuBarSegments(snapshot: snapshot([groupItem("Codex", "Codex", pct: 99)]),
                                        now: now, wokeRecently: false, hidden: [], pinned: [])

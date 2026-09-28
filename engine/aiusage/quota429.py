@@ -15,12 +15,14 @@ from datetime import datetime, timezone
 from typing import Dict, Optional, Tuple
 
 _HIT_RE = re.compile(
-    r"token[- ]plan\s+(?P<win>5-hour|1-week)\s+quota has been exhausted"
+    r"token[- ]plan\s+(?P<win>5-hour|1-week|1-month)\s+quota has been exhausted"
     r".*?reset at\s+(?P<md>\d{2}-\d{2})\s+(?P<hms>\d{2}:\d{2}:\d{2})\s*UTC",
     re.IGNORECASE | re.DOTALL,
 )
 
-_WINDOW_KEY = {"5-hour": "5h", "1-week": "week"}
+# "1-month" ยังไม่เคยเห็นของจริง — เดาจากรูปแบบสองตัวแรกสำหรับแผนรายเดือนของ
+# Alibaba Cloud ถ้าข้อความจริงต่างไปแค่จะไม่ match ไม่ได้แปลผิด
+_WINDOW_KEY = {"5-hour": "5h", "1-week": "week", "1-month": "month"}
 
 
 def parse_hit(text: str, event_ts: datetime) -> Optional[Tuple[str, datetime]]:
