@@ -3,8 +3,8 @@
 แอป menu bar สำหรับ macOS ที่บอกว่าโควตา AI ของคุณเหลือเท่าไหร่ — แยกตามบัญชีและตามถัง endpoint
 อ่านจาก log ในเครื่องเป็นหลัก ไม่กินโควตาโมเดล
 
-รองรับ Claude Code (หลายบัญชีผ่าน [ccs](https://github.com/bg-phunon)), Codex, Qwen Cloud, GLM
-และตัวนับแบบกรอกเองสำหรับบริการที่ไม่มีตัวเลขให้อ่าน
+รองรับ Claude Code (หลายบัญชีผ่าน [ccs](https://github.com/bg-phunon)), Codex, Muse, Qwen Cloud, GLM
+และตัวนับแบบกรอกเองสำหรับบริการที่ไม่มีตัวเลขให้อ่าน (Muse ไม่มีโควตาให้แสดง มีแต่ยอด token)
 
 ## ติดตั้ง
 
@@ -35,6 +35,7 @@ xattr -dr com.apple.quarantine /Applications/AIUsage.app
 |---|---|
 | `~/.claude`, `~/.ccs/instances/*` | log การใช้งาน Claude Code ต่อบัญชี |
 | `~/.codex/sessions/**/*.jsonl` | `rate_limits` ที่ Codex เขียนเป็น % จริงลง rollout log |
+| `~/.local/share/muse/sessions/**` | `model_completed` ของ Muse — มีแต่ยอด token ไม่มี % |
 | `~/.config/ai-usage/config.json` | ตั้งค่าของเอนจิน สร้างเองอัตโนมัติครั้งแรก |
 
 ทั้งหมดเป็นไฟล์ในเครื่อง ไม่มีอะไรถูกส่งออก
@@ -94,4 +95,4 @@ MIT — ดู [LICENSE](LICENSE)
 
 โลโก้ผู้ให้บริการมาจาก simple-icons (CC0) และ lobe-icons (MIT) รายละเอียดใน
 [`Assets/Logos/NOTICE.md`](Assets/Logos/NOTICE.md) เครื่องหมายการค้าทั้งหมดเป็นของเจ้าของ
-โปรเจกต์นี้ไม่มีความเกี่ยวข้องกับ Anthropic, OpenAI หรือ Alibaba
+โปรเจกต์นี้ไม่มีความเกี่ยวข้องกับ Anthropic, OpenAI, Meta หรือ Alibaba

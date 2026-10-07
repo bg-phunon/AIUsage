@@ -500,6 +500,7 @@ struct PopoverView: View {
         case "Alibaba Cloud": return .teal
         case "GLM": return .purple
         case "Codex": return .green
+        case "Muse": return .indigo
         default: return .gray
         }
     }
@@ -666,6 +667,11 @@ func rowFootnote(_ item: UsageItem, price: Price?, now: Date) -> String? {
     if item.local == true { return nil }
     var parts: [String] = []
     if item.tokens > 0 { parts.append(item.tokensText) }
+    // แถวที่ไม่มีหน้าต่าง % (Muse, Qwen Cloud) — ยอด 7 วันไม่มีที่อื่นให้ดูแล้ว
+    // (การ์ดที่มีตารางไม่เกี่ยว: ตัวเลขสัปดาห์อยู่ในแถวของมันเอง)
+    if displayableWindows(item).isEmpty && item.weekTokens > item.tokens {
+        parts.append("7d \(item.weekTokensText)")
+    }
     if let cost = costLabel(item, price: price) { parts.append(cost) }
     if let credits = creditsLabel(item) { parts.append(credits) }
     return parts.isEmpty ? nil : parts.joined(separator: " · ")
@@ -682,6 +688,7 @@ struct ProviderLogo: View {
         case "Codex": return "codex"
         case "GLM": return "zai"
         case "Qwen Cloud", "Alibaba Cloud": return "qwen"
+        case "Muse": return "muse"
         default: return nil
         }
     }

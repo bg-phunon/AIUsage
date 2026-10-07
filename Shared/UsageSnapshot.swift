@@ -148,11 +148,8 @@ struct UsageItem: Codable, Identifiable, Hashable {
         return now.timeIntervalSince(fetched)
     }
 
-    var tokensText: String {
-        if tokens >= 1_000_000 { return String(format: "%.2fM", Double(tokens) / 1_000_000) }
-        if tokens >= 1_000 { return String(format: "%.0fk", Double(tokens) / 1_000) }
-        return "\(tokens)"
-    }
+    var tokensText: String { formatTokenCount(tokens) }
+    var weekTokensText: String { formatTokenCount(weekTokens) }
 
     var tint: Color {
         if error != nil { return .secondary }
@@ -199,6 +196,13 @@ struct UsageSnapshot: Codable {
         guard let data = try? Data(contentsOf: fileURL) else { return .empty }
         return decode(from: data) ?? .empty
     }
+}
+
+/// "18.18M" / "92k" — รูปแบบเดียวกับที่ใช้ทั้ง popover ไม่ว่ายอดไหน
+func formatTokenCount(_ n: Int) -> String {
+    if n >= 1_000_000 { return String(format: "%.2fM", Double(n) / 1_000_000) }
+    if n >= 1_000 { return String(format: "%.0fk", Double(n) / 1_000) }
+    return "\(n)"
 }
 
 func countdownText(to date: Date?, from now: Date) -> String {

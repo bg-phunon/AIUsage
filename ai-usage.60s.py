@@ -44,6 +44,7 @@ from aiusage import clilive as _clilive  # noqa: E402
 from aiusage import liveusage as _liveu  # noqa: E402
 from aiusage import utilization as _util  # noqa: E402
 from aiusage import quota429 as _q429  # noqa: E402
+from aiusage import muselogs as _muse  # noqa: E402
 
 BLOCK_HOURS = 5
 WEEK_DAYS = 7
@@ -906,6 +907,8 @@ def default_config():
             for a in discover_claude_dirs()
         ],
         "codex": [{"label": "Codex", "dir": os.path.join(HOME, ".codex"), "enabled": True}],
+        # dir ว่าง = data dir ปริยายของ Muse (เคารพ XDG_DATA_HOME)
+        "muse": [{"label": "Muse", "enabled": True}],
         "manual": [
             {"id": "chatgpt", "label": "ChatGPT", "windowHours": 5, "step": 10},
             {"id": "qwen", "label": "Qwen", "windowHours": 24, "step": 10},
@@ -1465,6 +1468,108 @@ def apply_codex_anchor(fields, anchor, now):
     return fields
 
 
+# แผน Muse Code — ตัวคูณโควตาเทียบกับ Everyday (ดูจากหน้าสมัคร 2026-09-30:
+# High ฿499 = 5X, Power ฿1599 = 20X, Everyday ฿159)
+MUSE_PLAN_MULT = {"everyday": 1, "high": 5, "power": 20}
+
+
+def muse_plan_mult(name, default=1):
+    if isinstance(name, str):
+        return MUSE_PLAN_MULT.get(name.strip().lower(), default)
+    return default
+
+
+def parse_muse_anchor(raw):
+    """จุดยึดโควตา Muse จากหน้า usage — เก็บประวัติหลายจุดไว้วัดอัตราแบบ albb
+
+    Muse ไม่มี quota API ที่ยืนยันแล้ว (log ไม่มีเลข CLI ไม่มีคำสั่ง) ตัวเลขสองแถบ
+    จึงมาจากการจดมือ — จุดเดียว = lower_bound ค้างจนรีเซ็ตแบบ codexAnchor แต่ถ้ามี
+    สองจุดขึ้นไปจะวัดอัตรา %/token แล้วประมาณต่อเองระหว่างรอบที่จด
+
+    รูปแบบ: {"at": "...Z", "plan": "everyday",
+             "session": {"resetAt": "...Z", "points": [
+                 {"usedPct": 18, "at": "...Z", "plan": "everyday"}, ...]},
+             "weekly": {...}}
+    จุดที่ไม่มี plan ใช้ plan ของก้อน · ชื่อแผนที่ไม่รู้จัก = 1 (everyday)
+    แบบเก่า {"at", "session": {"usedPct", "resetAt"}} ยังใช้ได้ = จุดเดียว
+
+    เปลี่ยน resetAt = หน้าต่างใหม่ ต้องทิ้งจุดเก่าตอนจด (parser แยกไม่ออกว่าจุดไหน
+    อยู่รอบไหน เพราะไม่รู้ความยาวหน้าต่าง โดยเฉพาะ session ที่ Meta ไม่ประกาศ)
+    """
+    if not isinstance(raw, dict):
+        return None
+    at = parse_ts(raw.get("at"))
+    if at is None:
+        return None
+    plan_mult = muse_plan_mult(raw.get("plan"))
+
+    def points(key):
+        w = raw.get(key)
+        if not isinstance(w, dict):
+            return None
+        reset = parse_ts(w.get("resetAt"))
+        if reset is None:
+            return None
+        items = w.get("points")
+        if not isinstance(items, list):
+            # แบบเก่า: จุดเดียวคือค่าที่จด + เวลาที่จด
+            used = w.get("usedPct")
+            if not isinstance(used, (int, float)):
+                return None
+            items = [{"usedPct": used, "at": raw.get("at")}]
+        pts = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            used = item.get("usedPct")
+            pat = parse_ts(item.get("at"))
+            if isinstance(used, (int, float)) and pat is not None:
+                pts.append({"usedPct": float(used), "at": pat,
+                            "mult": muse_plan_mult(item.get("plan"), plan_mult)})
+        if not pts:
+            return None
+        pts.sort(key=lambda p: p["at"])
+        return {"resetAt": reset, "points": pts}
+
+    session, weekly = points("session"), points("weekly")
+    if session is None and weekly is None:
+        return None
+    return {"at": at, "mult": plan_mult, "session": session, "weekly": weekly}
+
+
+def estimate_muse_pct(anchor_points, series, now, current_mult=1):
+    """% ปัจจุบันของหน้าต่าง Muse จากจุดที่จดไว้ + token หลังจุดล่าสุด
+
+    อัตราวัดในหน่วย "everyday-equivalent %" (จุดคูณ mult ของแผนตอนที่จด) แล้วหาร
+    ด้วย mult ของแผนปัจจุบันตอนแสดง — อัปเกรดแผนกลางหน้าต่างแล้วเลขปรับตามเอง
+    โดยไม่ต้องจดใหม่ (20% บน everyday = 4% ทันทีที่ขึ้น high)
+
+    คืน (pct, confidence) หรือ None เมื่อไม่มีจุดที่ใช้ได้เลย · จุดเดียว/วัดอัตรา
+    ไม่ได้ = ค่าจุดล่าสุด (lower_bound ถ้าแผนไม่เปลี่ยน, estimated ถ้าถูก rescale
+    ข้ามแผน) · series: [(ts, tokens)] ของ Muse ทั้งหมด
+    """
+    usable = [p for p in anchor_points if p["at"] <= now]
+    if not usable:
+        return None
+    last = usable[-1]
+    scaled = last["usedPct"] * last["mult"] / current_mult
+
+    def hold():
+        same = last["mult"] == current_mult
+        return (min(100.0, scaled), "lower_bound" if same else "estimated")
+
+    if len(usable) < 2:
+        return hold()
+    first = usable[0]
+    delta = last["usedPct"] * last["mult"] - first["usedPct"] * first["mult"]
+    between = sum(tok for ts, tok in series if first["at"] <= ts < last["at"])
+    if delta <= 0 or between <= 0:
+        return hold()
+    after = sum(tok for ts, tok in series if last["at"] <= ts <= now)
+    value = (last["usedPct"] * last["mult"] + after * delta / between) / current_mult
+    return (min(100.0, value), "estimated")
+
+
 # ── ถาม Codex CLI ตรงๆ ─────────────────────────────────────────────────────
 # อ่านล็อกอย่างเดียวพึ่งไม่ได้: session ที่เปิดค้างตอนชนลิมิตเขียนแต่ถัง Spark ลงล็อก
 # (เคสจริง 2026-09-11: แอปค้าง 6% สามชั่วโมงทั้งที่ของจริง 23%) · app-server ของ
@@ -1759,6 +1864,76 @@ def collect(live_override=None):
             "severity": cf.get("severity"),
             "weekResetAt": (cf["weekResetAt"].isoformat().replace("+00:00", "Z")
                             if cf["weekResetAt"] else None),
+        }))
+
+    muse_cfg = cfg.get("muse")
+    if muse_cfg is None:
+        # คีย์นี้เกิดหลัง config ของคนใช้อยู่ก่อน — ไม่มี = ยังไม่เคยตั้ง
+        # ไม่ใช่ปิดไว้ จึงใช้ค่าปริยายโดยไม่เขียนไฟล์ config ของเขา
+        muse_cfg = [{"label": "Muse", "enabled": True}]
+    for m in muse_cfg:
+        if not m.get("enabled", True):
+            continue
+        sessions_dir = m.get("dir") or _muse.default_sessions_dir()
+        if not os.path.isdir(sessions_dir):
+            continue  # ยังไม่เคยลง/รัน Muse — ไม่ใช่ error
+        try:
+            ms = _muse.muse_stats(sessions_dir, now)
+        except Exception as exc:  # noqa: BLE001
+            items.append(with_contract({
+                "group": "Muse", "label": m.get("label", "Muse"), "window": "วันนี้",
+                "pct": None, "pctEstimated": False,
+                "tokens": 0, "cost": None, "calls": 0, "resetAt": None,
+                "weekTokens": 0, "weekCost": None, "weekPct": None,
+                "profile": None, "plan": None,
+                "error": ("%s: %s" % (type(exc).__name__, exc))[:120],
+            }))
+            continue
+        muse_anchor = parse_muse_anchor(cfg.get("museAnchor"))
+        mf = {"pct": None, "confidence": None, "weekPct": None,
+              "weekConfidence": None, "resetAt": None, "weekResetAt": None}
+        if muse_anchor is not None:
+            pairs = (("session", "pct", "confidence", "resetAt"),
+                     ("weekly", "weekPct", "weekConfidence", "weekResetAt"))
+            live = [muse_anchor.get(k) for k, _, _, _ in pairs]
+            live = [w for w in live
+                    if w is not None and now < w["resetAt"] and len(w["points"]) >= 2]
+            series = []
+            if live:
+                try:
+                    series = _muse.muse_series(
+                        sessions_dir, min(w["points"][0]["at"] for w in live))
+                except Exception:  # noqa: BLE001 — ไม่มี series ก็ถอยไปค่าจุดล่าสุด
+                    series = []
+            for key, pct_key, conf_key, reset_key in pairs:
+                win = muse_anchor.get(key)
+                if win is None or now >= win["resetAt"]:
+                    continue
+                est = estimate_muse_pct(win["points"], series, now,
+                                        muse_anchor["mult"])
+                if est is None:
+                    continue
+                mf[pct_key], mf[conf_key] = round(est[0], 1), est[1]
+                mf[reset_key] = win["resetAt"]
+        items.append(with_contract({
+            "group": "Muse", "label": m.get("label", "Muse"), "window": "วันนี้",
+            # % มาจากจุดยึดที่จดมือจากหน้า usage — ไม่มี = เหลือแต่ยอด token
+            "pct": round(mf["pct"], 1) if mf["pct"] is not None else None,
+            "pctEstimated": False,
+            "tokens": ms["today"]["tokens"], "cost": None,
+            "calls": ms["today"]["calls"],
+            "resetAt": (mf["resetAt"].isoformat().replace("+00:00", "Z")
+                        if mf["resetAt"] else None),
+            "weekTokens": ms["week"]["tokens"], "weekCost": None,
+            "weekPct": (round(mf["weekPct"], 1)
+                        if mf["weekPct"] is not None else None),
+            "profile": None, "plan": ms["model"],
+            "pctSource": ("anchor" if (mf["pct"] is not None
+                                       or mf["weekPct"] is not None) else None),
+            "confidence": mf["confidence"],
+            "weekConfidence": mf["weekConfidence"],
+            "weekResetAt": (mf["weekResetAt"].isoformat().replace("+00:00", "Z")
+                            if mf["weekResetAt"] else None),
         }))
 
     for m in cfg.get("manual", []):

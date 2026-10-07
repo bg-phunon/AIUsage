@@ -375,6 +375,21 @@ final class MenuBarLabelTests: XCTestCase {
         let snap = snapshot([unmeasured("Codex", "Codex", weekTokens: 0)])
         XCTAssertTrue(menuBarSegments(snapshot: snap, now: now, wokeRecently: false).isEmpty)
     }
+
+    /// Muse ไม่มี % ให้วัดเลยตั้งแต่เกิด (ไม่ใช่แค่แคชเก่า) — แถบแสดงยอด 7 วัน
+    /// บรรทัดเดียวพร้อมโลโก้ ไม่ใช่ขีด
+    func testMuseShowsItsWeekTokensOnTheBar() {
+        var muse = UsageItem(group: "Muse", label: "Muse", window: "วันนี้",
+                             tokens: 3_510_003, weekTokens: 3_510_003,
+                             plan: "muse-spark-1.3-contributor")
+        muse.local = false
+        let segments = menuBarSegments(snapshot: snapshot([muse]), now: now,
+                                       wokeRecently: false)
+        XCTAssertEqual(segments.map(\.id), ["Muse/Muse"])
+        XCTAssertEqual(segments.first?.top, "4M")
+        XCTAssertNil(segments.first?.bottom)
+        XCTAssertEqual(segments.first?.assetName, "muse")
+    }
 }
 
 // MARK: - ความกว้างของ status item

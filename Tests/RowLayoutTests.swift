@@ -86,6 +86,22 @@ final class RowLayoutTests: XCTestCase {
         XCTAssertFalse((rowFootnote(unknown, price: nil, now: Date()) ?? "").contains("$0.00"))
     }
 
+    /// Muse ไม่มีหน้าต่าง % — เชิงอรรถต้องบอกทั้งยอดวันนี้และ 7 วัน
+    /// ไม่งั้นยอดสัปดาห์ไม่มีที่ให้ดูใน popover เลย (แถบเมนูเห็นอยู่ฝ่ายเดียว)
+    func testFootnoteShowsWeekTokensWhenThereAreNoWindows() {
+        let muse = UsageItem(group: "Muse", label: "Muse", window: "วันนี้",
+                             tokens: 92_000, weekTokens: 1_234_567)
+        XCTAssertEqual(rowFootnote(muse, price: nil, now: Date()), "92k · 7d 1.23M")
+    }
+
+    /// การ์ดที่มีตาราง % อยู่แล้ว — ยอดสัปดาห์อยู่ในแถวของมันเอง ห้ามมาเบิ้ลในเชิงอรรถ
+    func testFootnoteKeepsWeekTokensOutOfWindowedCards() {
+        let item = UsageItem(group: "Claude Code", label: "default", window: "5 ชม.",
+                             pct: 12, tokens: 92_000, weekTokens: 1_234_567,
+                             confidence: "valid")
+        XCTAssertEqual(rowFootnote(item, price: nil, now: Date()), "92k")
+    }
+
     /// Qwen Cloud ตอน weekly เต็ม: 5h ไม่มีข้อมูล เวลารีเซ็ตต้องไปอยู่แถว 7d
     func testResetTimeFollowsTheRowThatHasData() {
         let reset = Date().addingTimeInterval(3600)
