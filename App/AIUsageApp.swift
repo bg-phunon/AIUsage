@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Combine
+import UserNotifications
 
 @main
 struct AIUsageApp: App {
@@ -18,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let model = UsageModel()
     private var prefsObserver: AnyCancellable?
     private let notifier = LimitNotifier()
+    private let updateNotifier = UpdateNotifier()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // ย้ายค่าที่เคยตั้งไว้ในกลไกเดิม (visibleMenuBarProviders) มาเป็น prefs.hidden
@@ -30,6 +32,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         // ขอสิทธิ์เฉพาะตอนที่จะใช้จริง — แอปที่เด้งขอตั้งแต่วินาทีแรกทั้งที่ผู้ใช้
         // ปิดฟีเจอร์ไว้ คือแอปที่ถูกกด "ไม่อนุญาต" แล้วขอใหม่ไม่ได้อีก
         if model.prefs.notifyNearLimit { notifier.requestPermission() }
+        // delegate ตั้งตลอดไม่ตามสวิตช์ — ผู้ใช้เปิดสวิตช์ทีหลังแล้วปุ่มบนใบแจ้ง
+        // ต้องทำงานเลย ไม่ใช่รอเปิดแอปใหม่
+        UNUserNotificationCenter.current().delegate = updateNotifier
+        if model.prefs.notifyOnUpdate { updateNotifier.requestPermission() }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.action = #selector(togglePopover)
@@ -59,6 +65,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                                                name: .aiUsageSettingsChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(installUpdateFromMenu),
                                                name: .aiUsageInstallUpdate, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(installUpdateDirect),
+                                               name: .aiUsageInstallUpdateDirect, object: nil)
         // Preferences เป็น ObservableObject คนละตัวกับ UsageModel — เปลี่ยนหมุดแล้วจะไม่ทำให้
         // updateBar() ถูกเรียกเองจนกว่า timer 60 วิจะครบ ต้องสมัคร objectWillChange ตรงๆ
         // (มันยิง *ก่อน* ค่าเปลี่ยน จึงต้อง async ไปอ่านค่าหลังเปลี่ยนแล้ว)
@@ -102,6 +110,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             self.model.wokeRecently = self.wokeRecently
             if self.model.prefs.notifyNearLimit {
                 self.notifier.notify(items: self.model.snapshot.items)
+            }
+            if self.model.prefs.notifyOnUpdate {
+                self.updateNotifier.checkAndNotify()
             }
             self.updateBar()
         }
@@ -211,11 +222,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         guard confirm.runModal() == .alertFirstButtonReturn else { return }
 
         if !installUpdate(repo: repo) {
-            let failed = NSAlert()
-            failed.messageText = "เริ่มการติดตั้งไม่ได้"
-            failed.informativeText = "หา setup.sh ที่รันได้ใน \(repo) ไม่เจอ"
-            failed.runModal()
+            alertInstallFailed(repo: repo)
         }
+    }
+
+    /// ปุ่มติดตั้งบนใบแจ้งเตือน — ตัวใบแจ้งคือการถามแล้ว ติดตั้งเลยไม่ต้องยืนยันซ้ำ
+    @objc private func installUpdateDirect() {
+        guard let repo = InstallInfo.load()?.repo else { return }
+        if !installUpdate(repo: repo) {
+            alertInstallFailed(repo: repo)
+        }
+    }
+
+    private func alertInstallFailed(repo: String) {
+        let failed = NSAlert()
+        failed.messageText = "เริ่มการติดตั้งไม่ได้"
+        failed.informativeText = "หา setup.sh ที่รันได้ใน \(repo) ไม่เจอ"
+        failed.runModal()
     }
 
     @objc private func terminate() { NSApplication.shared.terminate(nil) }

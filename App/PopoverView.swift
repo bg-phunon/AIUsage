@@ -26,6 +26,8 @@ extension Notification.Name {
     /// หน้าตั้งค่าขอให้ติดตั้งโค้ดใหม่ — งานจริงอยู่ที่ AppDelegate เพราะต้องถามยืนยัน
     /// และต้องอยู่รอดหลัง popover ปิดไปแล้ว
     static let aiUsageInstallUpdate = Notification.Name("AIUsage.installUpdate")
+    /// ปุ่มติดตั้งบนใบแจ้งเตือน — ตัวใบคือการถามแล้ว ไม่ต้องยืนยันซ้ำ
+    static let aiUsageInstallUpdateDirect = Notification.Name("AIUsage.installUpdateDirect")
 }
 
 struct PopoverView: View {

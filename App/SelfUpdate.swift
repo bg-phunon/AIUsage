@@ -1,4 +1,5 @@
 import Foundation
+import UserNotifications
 
 /// อัปเดตตัวเองจากโค้ดในเครื่อง — repo นี้ไม่มี remote โค้ดใหม่จึงมาจากที่เดียว
 /// คือโฟลเดอร์ที่ใช้ build ครั้งล่าสุด
@@ -8,8 +9,8 @@ import Foundation
 ///
 /// "มีอัปเดต" วัดจาก mtime ของไฟล์ ไม่ใช่ commit เพราะงานในโปรเจกต์นี้ค้างไม่ commit
 /// อยู่หลายวันเป็นเรื่องปกติ — เทียบ commit อย่างเดียวจะบอกว่า "ล่าสุดแล้ว" ในเคสที่
-/// พบบ่อยที่สุด ข้อแลกคือแตะไฟล์เฉยๆ ก็นับเป็นใหม่ได้ ซึ่งราคาถูกเพราะการติดตั้ง
-/// เป็นการกดเองเสมอ ไม่มีอะไรเกิดขึ้นเองจากการนับผิด
+/// พบบ่อยที่สุด ข้อแลกคือแตะไฟล์เฉยๆ ก็นับเป็นใหม่ได้ ทางอัตโนมัติจึงทำได้แค่
+/// "ชวน" หลังไฟล์นิ่งพอแล้ว ไม่ใช่ติดตั้งเองเงียบๆ
 struct InstallInfo: Codable, Equatable {
     let repo: String
     let installedAt: Date
@@ -135,6 +136,137 @@ func updateMenuTitle(_ state: UpdateState, now: Date) -> String {
         return "อัปเดตด้วย brew upgrade --cask aiusage"
     case let .unavailable(reason):
         return reason
+    }
+}
+
+/// เกณฑ์ "นิ่งพอจะชวนอัปเดต" — ไฟล์เพิ่งขยับแปลว่ากำลังแก้อยู่ ชวนตอนนั้นคือ
+/// ชวน build ของที่ยังไม่เสร็จ แถมจะเด้งซ้ำทุกครั้งที่กดเซฟ
+let updateQuietSeconds: TimeInterval = 10 * 60
+/// เตือนเรื่องเดิมซ้ำได้ทุกชั่วโมง — ตรวจทุก 60 วินาที ไม่มีคูลดาวน์จะโดนใบเดิม
+/// ทุกนาทีจนต้องปิดแจ้งเตือนทิ้งทั้งแอป
+let updateNotifyCooldown: TimeInterval = 60 * 60
+
+/// เวลา "แก้ล่าสุด" ถ้าควรเด้งแจ้งเตือนชวนอัปเดตตอนนี้ — บริสุทธิ์ ไม่แตะระบบแจ้งเตือน
+///
+/// คืน nil เมื่อไม่เข้าเงื่อนไข: state ไม่ใช่ available (รวม brew ที่ห้ามชวนเด็ดขาด)
+/// ไฟล์ยังไม่นิ่งพอ หรือเพิ่งเตือนเรื่องเดิมไป
+func updateNotifySince(state: UpdateState, now: Date, lastNotifiedAt: Date?,
+                       quietSeconds: TimeInterval = updateQuietSeconds,
+                       cooldownSeconds: TimeInterval = updateNotifyCooldown) -> Date? {
+    guard case let .available(since) = state else { return nil }
+    guard now.timeIntervalSince(since) >= quietSeconds else { return nil }
+    if let last = lastNotifiedAt, now.timeIntervalSince(last) < cooldownSeconds { return nil }
+    return since
+}
+
+/// ผลการติดตั้งครั้งล่าสุดที่ setup.sh เขียนทิ้งไว้ — สำเร็จหรือล้มก็เขียนทั้งคู่
+/// แอปที่รันอยู่จะได้รู้ว่ารอบที่สั่งไปจบลงยังไงโดยไม่ต้องเดาจาก install.json
+struct UpdateResult: Codable, Equatable {
+    let at: Date
+    let ok: Bool
+
+    static let path = NSString(string: "~/.config/ai-usage/last-update.json").expandingTildeInPath
+
+    static func load(from path: String = UpdateResult.path) -> UpdateResult? {
+        guard let data = FileManager.default.contents(atPath: path) else { return nil }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        return try? decoder.decode(UpdateResult.self, from: data)
+    }
+}
+
+/// ผลล้มเหลวที่ยังไม่เคยรายงาน — บริสุทธิ์ · สำเร็จหรือไม่มีผลเลยต้องเงียบ
+func unreportedFailure(_ result: UpdateResult?, lastReportedAt: Date?) -> UpdateResult? {
+    guard let result, !result.ok else { return nil }
+    if let last = lastReportedAt, result.at <= last { return nil }
+    return result
+}
+
+let updateCategoryID = "AIUsage.update"
+let updateInstallActionID = "AIUsage.updateInstall"
+
+/// ชวนอัปเดตอัตโนมัติ — ตรวจจากรอบ refresh 60 วิของแอป ไม่ใช่ timer ของตัวเอง
+///
+/// เด้งใบเดียวแล้วจบ ไม่ติดตั้งเอง: build ที่ล้มเหลวทิ้งแอปเดิมไว้ให้รันต่อได้ก็จริง
+/// แต่ไอคอนที่หายไป 1–2 นาทีโดยไม่มีใครบอกคือเรื่องที่ผู้ใช้ต้องเป็นคนเลือก
+final class UpdateNotifier: NSObject, UNUserNotificationCenterDelegate {
+    private static let lastNotifiedKey = "lastUpdateNotifiedAt"
+    private static let lastReportedKey = "lastReportedUpdateResultAt"
+    private static let availableID = "aiusage-update-available"
+    private static let failedID = "aiusage-update-failed"
+
+    private let defaults: UserDefaults
+    private let center: UNUserNotificationCenter?
+
+    init(defaults: UserDefaults = .standard,
+         center: UNUserNotificationCenter? = .current()) {
+        self.defaults = defaults
+        self.center = center
+        super.init()
+        let install = UNNotificationAction(identifier: updateInstallActionID,
+                                           title: "ติดตั้ง", options: [])
+        center?.setNotificationCategories([
+            UNNotificationCategory(identifier: updateCategoryID, actions: [install],
+                                   intentIdentifiers: [], options: []),
+        ])
+    }
+
+    func requestPermission() {
+        center?.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    }
+
+    /// เวลาที่จำไว้อยู่ใน UserDefaults ไม่ใช่หน่วยความจำ — ปิดเปิดแอปแล้วต้องไม่
+    /// ยิงใบเดิมซ้ำ
+    func checkAndNotify(now: Date = Date()) {
+        let lastNotified = defaults.object(forKey: Self.lastNotifiedKey) as? Date
+        if let since = updateNotifySince(state: currentUpdateState(), now: now,
+                                         lastNotifiedAt: lastNotified) {
+            postAvailable(since: since, now: now)
+            defaults.set(now, forKey: Self.lastNotifiedKey)
+        }
+        let lastReported = defaults.object(forKey: Self.lastReportedKey) as? Date
+        if let failure = unreportedFailure(UpdateResult.load(), lastReportedAt: lastReported) {
+            postFailed()
+            defaults.set(failure.at, forKey: Self.lastReportedKey)
+        }
+    }
+
+    private func postAvailable(since: Date, now: Date) {
+        guard let center else { return }
+        let content = UNMutableNotificationContent()
+        content.categoryIdentifier = updateCategoryID
+        content.title = "มีโค้ดใหม่พร้อมติดตั้ง"
+        content.body = "แก้ล่าสุด \(ageText(now.timeIntervalSince(since))) ที่แล้ว · "
+            + "กดติดตั้งแล้วแอปจะปิดแล้วเปิดใหม่เอง"
+        center.add(UNNotificationRequest(identifier: Self.availableID,
+                                        content: content, trigger: nil))
+    }
+
+    private func postFailed() {
+        guard let center else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "ติดตั้งอัปเดตไม่สำเร็จ"
+        content.body = "แอปเดิมยังรันอยู่ · ดูสาเหตุที่ /tmp/aiusage-update.log"
+        center.add(UNNotificationRequest(identifier: Self.failedID,
+                                        content: content, trigger: nil))
+    }
+
+    /// กดติดตั้งบนใบแจ้ง = ตอบตกลงแล้ว — ไม่ต้องถามซ้ำด้วย dialog อีกใบ
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        if response.actionIdentifier == updateInstallActionID {
+            NotificationCenter.default.post(name: .aiUsageInstallUpdateDirect, object: nil)
+        }
+        completionHandler()
+    }
+
+    /// แอปเมนูบาร์ "active" แทบตลอดเวลา — ไม่บอกตรงนี้ใบจะไม่โชว์ตอนกำลังใช้งานพอดี
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler:
+                                    @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .sound])
     }
 }
 

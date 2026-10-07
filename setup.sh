@@ -29,9 +29,26 @@ if [ "${1:-}" = "--uninstall" ]; then
   exit 0
 fi
 
+# ผลการติดตั้งครั้งล่าสุด — แอปที่รันอยู่อ่านเพื่อรายงานว่า "รอบที่สั่งไปล้ม"
+# สำเร็จหรือล้มก็เขียนทั้งคู่ เงียบหายคือไม่มีใครรู้
+note_result() {
+  python3 - "$1" <<'PYEOF' 2>/dev/null || true
+import json, os, sys, time
+path = os.path.expanduser("~/.config/ai-usage/last-update.json")
+os.makedirs(os.path.dirname(path), exist_ok=True)
+tmp = path + ".tmp"
+with open(tmp, "w", encoding="utf-8") as fh:
+    json.dump({"at": int(time.time()), "ok": sys.argv[1] == "ok"}, fh)
+os.replace(tmp, path)
+PYEOF
+}
+# ตาข่ายกันพลาด — คำสั่งที่ล้มนอกเหนือสาขาที่ดักไว้ข้างล่าง (cp พัง, python พัง)
+# ต้องทิ้งร่องรอยไว้ ไม่ใช่ตายเงียบแล้วแอปเก่านั่งรอผลที่ไม่มา
+trap 'note_result fail' ERR
+
 echo "▸ 1/4 ตรวจเครื่องมือ"
-command -v xcodegen >/dev/null 2>&1 || { echo "  ต้องมี xcodegen"; exit 1; }
-command -v xcodebuild >/dev/null 2>&1 || { echo "  ต้องมี Xcode ก่อน"; exit 1; }
+command -v xcodegen >/dev/null 2>&1 || { echo "  ต้องมี xcodegen"; note_result fail; exit 1; }
+command -v xcodebuild >/dev/null 2>&1 || { echo "  ต้องมี Xcode ก่อน"; note_result fail; exit 1; }
 
 echo "▸ 2/4 ตั้งเวอร์ชันจาก git"
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -48,10 +65,10 @@ xcodegen generate
 xcodebuild -project AIUsage.xcodeproj -scheme AIUsage -configuration Release \
   -derivedDataPath build MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUM" \
   CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
-  build > /tmp/aiusage-build.log 2>&1 || { tail -30 /tmp/aiusage-build.log; exit 1; }
+  build > /tmp/aiusage-build.log 2>&1 || { tail -30 /tmp/aiusage-build.log; note_result fail; exit 1; }
 
 APP="$ROOT/build/Build/Products/Release/${APP_NAME}.app"
-[ -d "$APP" ] || { echo "  build ไม่ได้ .app — ดู /tmp/aiusage-build.log"; exit 1; }
+[ -d "$APP" ] || { echo "  build ไม่ได้ .app — ดู /tmp/aiusage-build.log"; note_result fail; exit 1; }
 
 # ad-hoc sign — SMAppService (เปิดเองตอนเข้าระบบ) ปฏิเสธแอปที่ไม่มีลายเซ็นเลย
 codesign --force --deep -s - "$APP" 2>/dev/null || echo "  (เซ็น ad-hoc ไม่ได้ — login item อาจใช้ไม่ได้)"
@@ -116,10 +133,12 @@ for _ in $(seq 1 18); do
   if [ -n "$NOW" ] && [ "$NOW" != "$BEFORE" ]; then
     echo
     echo "เสร็จแล้ว — $VERSION ทำงานอยู่บน menu bar"
+    note_result ok
     exit 0
   fi
 done
 echo
 echo "แอปติดตั้งแล้วแต่ยังไม่เขียน snapshot ภายใน 90 วินาที"
 echo "ตรวจด้วย: log stream --predicate 'process == \"AIUsage\"' --level error"
+note_result fail
 exit 1

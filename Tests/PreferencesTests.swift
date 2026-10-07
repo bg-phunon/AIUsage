@@ -125,6 +125,14 @@ final class PreferencesTests: XCTestCase {
         XCTAssertFalse(Preferences(defaults: defaults).launchAtLogin)
     }
 
+    /// ชวนติดตั้งเมื่อมีโค้ดใหม่: ค่าเริ่มต้นเปิด และการปิดต้องรอดข้าม restart
+    func testNotifyOnUpdateDefaultsTrueAndPersists() {
+        XCTAssertTrue(Preferences(defaults: defaults).notifyOnUpdate)
+        let prefs = Preferences(defaults: defaults)
+        prefs.setNotifyOnUpdate(false)
+        XCTAssertFalse(Preferences(defaults: defaults).notifyOnUpdate)
+    }
+
     // MARK: - ย้ายกลไก visibleMenuBarProviders เดิมมาเป็น hidden
 
     /// ผู้ใช้เคยตั้ง visibleMenuBarProviders ไว้ ต้องไม่หายตอนรวมกลไก

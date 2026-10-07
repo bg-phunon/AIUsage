@@ -131,6 +131,11 @@ struct SettingsView: View {
                       isOn: Binding(get: { prefs.notifyNearLimit },
                                     set: { prefs.setNotifyNearLimit($0)
                                              if $0 { LimitNotifier().requestPermission() } }))
+            toggleRow(title: "ชวนติดตั้งเมื่อมีโค้ดใหม่",
+                      subtitle: "เด้งหลังไฟล์นิ่งเกิน 10 นาที กดติดตั้งจากใบแจ้งได้เลย",
+                      isOn: Binding(get: { prefs.notifyOnUpdate },
+                                    set: { prefs.setNotifyOnUpdate($0)
+                                             if $0 { UpdateNotifier().requestPermission() } }))
             toggleRow(title: "เปิดเองตอนเข้าระบบ",
                       subtitle: "ขึ้นบนแถบเมนูทันทีที่เข้าเครื่อง ไม่ต้องเปิดแอปเอง",
                       isOn: Binding(get: { prefs.launchAtLogin },

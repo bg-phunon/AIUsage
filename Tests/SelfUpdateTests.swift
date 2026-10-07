@@ -184,4 +184,71 @@ final class SelfUpdateTests: XCTestCase {
                                 toolsPresent: true, brewManaged: false)
         XCTAssertTrue(state.isActionable)
     }
+
+    // MARK: - แจ้งเตือนชวนอัปเดตอัตโนมัติ
+
+    private let checkTime = Date(timeIntervalSince1970: 1_787_020_000)
+
+    func testSettledUpdateNotifiesOnce() {
+        let since = checkTime.addingTimeInterval(-20 * 60)
+        XCTAssertEqual(updateNotifySince(state: .available(since: since), now: checkTime,
+                                        lastNotifiedAt: nil),
+                       since)
+    }
+
+    /// ไฟล์เพิ่งขยับ = กำลังแก้อยู่ — เตือนตอนนี้คือชวน build ของที่ยังไม่เสร็จ
+    /// แล้วจะเตือนซ้ำทุกครั้งที่กดเซฟ
+    func testFreshEditsDoNotNotify() {
+        let since = checkTime.addingTimeInterval(-2 * 60)
+        XCTAssertNil(updateNotifySince(state: .available(since: since), now: checkTime,
+                                       lastNotifiedAt: nil),
+                     "เพิ่งแก้เมื่อ 2 นาทีที่แล้ว ต้องรอให้นิ่งก่อน")
+    }
+
+    /// ตรวจทุก 60 วินาที — ไม่มีคูลดาวน์จะได้ใบเดิมซ้ำทุกนาทีจนต้องปิดแจ้งเตือนทิ้ง
+    func testCooldownSuppressesRepeatNotification() {
+        let since = checkTime.addingTimeInterval(-20 * 60)
+        XCTAssertNil(updateNotifySince(state: .available(since: since), now: checkTime,
+                                       lastNotifiedAt: checkTime.addingTimeInterval(-10 * 60)))
+    }
+
+    func testCooldownExpiryNotifiesAgain() {
+        let since = checkTime.addingTimeInterval(-3 * 3600)
+        XCTAssertEqual(updateNotifySince(state: .available(since: since), now: checkTime,
+                                        lastNotifiedAt: checkTime.addingTimeInterval(-2 * 3600)),
+                       since, "เตือนเมื่อ 2 ชม.ก่อน ครบชั่วโมงแล้วเตือนซ้ำได้")
+    }
+
+    func testNonAvailableStatesNeverNotify() {
+        for state in [UpdateState.upToDate(version: "a", build: 1),
+                      .unavailable("x"),
+                      .managedByHomebrew] {
+            XCTAssertNil(updateNotifySince(state: state, now: checkTime, lastNotifiedAt: nil),
+                         "brew เป็นเจ้าของต้องไม่ถูกชวน build ทับเด็ดขาด")
+        }
+    }
+
+    // MARK: - รายงานผลติดตั้งที่ล้มเหลว
+
+    func testUpdateResultReadsWhatSetupWrote() throws {
+        let path = root.appendingPathComponent("last-update.json")
+        try #"{"at":1787020000,"ok":false}"#.write(to: path, atomically: true, encoding: .utf8)
+        let result = try XCTUnwrap(UpdateResult.load(from: path.path))
+        XCTAssertEqual(result.at, Date(timeIntervalSince1970: 1787020000))
+        XCTAssertFalse(result.ok)
+    }
+
+    func testUnreportedFailureReportsOnce() {
+        let failed = UpdateResult(at: checkTime, ok: false)
+        XCTAssertEqual(unreportedFailure(failed, lastReportedAt: nil), failed)
+        XCTAssertNil(unreportedFailure(failed, lastReportedAt: checkTime),
+                     "รายงานแล้วต้องไม่ยิงซ้ำทุกรอบตรวจ")
+    }
+
+    func testSuccessAndMissingResultsStaySilent() {
+        XCTAssertNil(unreportedFailure(UpdateResult(at: checkTime, ok: true),
+                                      lastReportedAt: nil),
+                     "ติดตั้งสำเร็จไม่ต้องมีใบแจ้ง")
+        XCTAssertNil(unreportedFailure(nil, lastReportedAt: nil))
+    }
 }
