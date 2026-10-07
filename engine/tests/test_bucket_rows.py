@@ -306,3 +306,47 @@ class MonthlyPlanTest(TwoTokenPlansTest):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+MIMO = Bucket("mimo", "Xiaomi MiMo", "token-plan-cn.xiaomimimo.com", False)
+
+
+class MimoPlanTest(BucketRowsQwenHitTest):
+    """% รายเดือนของ MiMo คำนวณจากสูตร credit ที่ประกาศ รวมทุกบัญชี Claude"""
+
+    def setUp(self):
+        super().setUp()
+        self.table = {"mimo-v2.6-pro": MIMO}
+        self.plans = {"mimo": {"budget": 4_100_000_000,
+                               "start": self.now - timedelta(days=10),
+                               "resetAt": self.now + timedelta(days=20)}}
+
+    def test_usage_sums_credits_since_cycle_start(self):
+        self.write([usage_record(self.now - timedelta(days=1), "mimo-v2.6-pro"),
+                    usage_record(self.now - timedelta(days=30), "mimo-v2.6-pro")])
+        usage = engine.mimo_plan_usage([self.acc], self.table, self.plans)
+        expect = engine._mimo.credits("mimo-v2.6-pro", {"input_tokens": 100, "output_tokens": 50},
+                                      self.now - timedelta(days=1))
+        self.assertEqual(usage["mimo"]["credits"], expect, "record ก่อนต้นรอบห้ามนับ")
+        self.assertEqual(usage["mimo"]["unknown"], 0)
+
+    def test_row_gets_a_month_window(self):
+        self.write([usage_record(self.now - timedelta(hours=1), "mimo-v2.6-pro")])
+        usage = engine.mimo_plan_usage([self.acc], self.table, self.plans)
+        usage["mimo"]["plan"] = dict(usage["mimo"]["plan"], budget=1_000_000)
+        rows = engine.bucket_rows(self.acc, self.table, mimo_usage=usage)
+        self.assertEqual(len(rows), 1)
+        win = rows[0]["modelWindows"]
+        self.assertEqual([w["label"] for w in win], ["1mo"])
+        self.assertEqual(win[0]["confidence"], "estimated")
+        # 100×300 + 50×600 = 60k credit จาก 1M = 6% (×0.8 ถ้ารันช่วงกลางคืนปักกิ่ง)
+        ts = self.now - timedelta(hours=1)
+        expect = engine._mimo.credits("mimo-v2.6-pro",
+                                      {"input_tokens": 100, "output_tokens": 50}, ts) / 1e4
+        self.assertAlmostEqual(win[0]["pct"], expect, places=2)
+
+    def test_no_plan_config_means_tokens_only(self):
+        self.write([usage_record(self.now - timedelta(hours=1), "mimo-v2.6-pro")])
+        rows = engine.bucket_rows(self.acc, self.table)
+        self.assertEqual(rows[0]["modelWindows"], [])
+        self.assertIsNone(rows[0]["pct"])

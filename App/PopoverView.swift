@@ -689,6 +689,7 @@ struct ProviderLogo: View {
         case "GLM": return "zai"
         case "Qwen Cloud", "Alibaba Cloud": return "qwen"
         case "Muse": return "muse"
+        case "Xiaomi MiMo": return "xiaomi"
         default: return nil
         }
     }

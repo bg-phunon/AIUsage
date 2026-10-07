@@ -46,6 +46,7 @@ HOST_NAMES = (
     ("openai.com", "OpenAI"),
     ("moonshot.cn", "Kimi"),
     ("deepseek.com", "DeepSeek"),
+    ("xiaomimimo.com", "Xiaomi MiMo"),
 )
 
 

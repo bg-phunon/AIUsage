@@ -208,6 +208,18 @@ final class MenuBarLabelTests: XCTestCase {
         XCTAssertEqual(certainty(confidence: "estimated"), .estimate)
     }
 
+    /// Xiaomi MiMo คำนวณ % รายเดือนจากสูตร credit — ต้องได้ที่บนแถบพร้อมโลโก้ของตัวเอง
+    func testXiaomiMimoShowsItsMonthlyEstimate() {
+        var mimo = UsageItem(group: "Xiaomi MiMo", label: "default", window: "5 ชม.")
+        mimo.modelWindows = [ModelWindow(label: "1mo", pct: 23.6, resetAt: now.addingTimeInterval(86400),
+                                         confidence: "estimated")]
+        let segments = menuBarSegments(snapshot: snapshot([mimo]), now: now,
+                                       wokeRecently: false, hidden: [], pinned: [])
+        XCTAssertEqual(segments.map(\.id), ["Xiaomi MiMo/default"])
+        XCTAssertEqual(segments.first?.assetName, "xiaomi")
+        XCTAssertEqual(segments.first?.top, "~24%")
+    }
+
     func testSingleAccountNeedsNoTag() {
         let segments = menuBarSegments(snapshot: snapshot([groupItem("Codex", "Codex", pct: 99)]),
                                        now: now, wokeRecently: false, hidden: [], pinned: [])

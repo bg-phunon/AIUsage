@@ -45,6 +45,7 @@ from aiusage import liveusage as _liveu  # noqa: E402
 from aiusage import utilization as _util  # noqa: E402
 from aiusage import quota429 as _q429  # noqa: E402
 from aiusage import muselogs as _muse  # noqa: E402
+from aiusage import mimo as _mimo  # noqa: E402
 
 BLOCK_HOURS = 5
 WEEK_DAYS = 7
@@ -1228,7 +1229,35 @@ def plan_token_series(accounts, table, keys, since):
     return series
 
 
-def bucket_rows(acc, table, qwen_anchor=None, plan_anchors=None, plan_series=None):
+def mimo_plan_usage(accounts, table, plans):
+    """credit ที่ใช้ในรอบนี้ของแต่ละแผน MiMo — รวมทุกบัญชี Claude
+
+    โปรไฟล์ ccs รันได้จากทุกบัญชี แผนใบเดียวกันจึงต้องนับรวม (แบบ plan_token_series)
+    call ของโมเดลที่ไม่รู้อัตรานับแยกใน unknown — ห้ามกลายเป็น 0 credit เงียบๆ
+    คืน {profile: {"plan", "credits", "unknown"}}
+    """
+    out = {key: {"plan": plan, "credits": 0.0, "unknown": 0} for key, plan in plans.items()}
+    if not out:
+        return out
+    since = min(plan["start"] for plan in plans.values())
+    for acc in accounts:
+        for ts, usage, model in claude_entries(acc["dir"], since):
+            if not _buckets.is_real_model(model):
+                continue
+            key = _buckets.bucket_for_model(model, table).key
+            slot = out.get(key)
+            if slot is None or ts < slot["plan"]["start"] or ts >= slot["plan"]["resetAt"]:
+                continue
+            used = _mimo.credits(model, usage, ts)
+            if used is None:
+                slot["unknown"] += 1
+            else:
+                slot["credits"] += used
+    return out
+
+
+def bucket_rows(acc, table, qwen_anchor=None, plan_anchors=None, plan_series=None,
+                mimo_usage=None):
     """แยก traffic ที่ไม่ใช่ Anthropic ตาม endpoint ของถังโควตา"""
     since = now_utc() - timedelta(days=WEEK_DAYS)
     entries = claude_entries(acc["dir"], since)
@@ -1333,6 +1362,12 @@ def bucket_rows(acc, table, qwen_anchor=None, plan_anchors=None, plan_series=Non
                 fetched_at = qwen_anchor["at"]
                 if reset_at is None:
                     reset_at = qwen_anchor["resetAt"]
+
+        # MiMo ประกาศสูตร credit เอง → % รายเดือนคำนวณจาก log ได้ (ดู aiusage/mimo.py)
+        mimo_slot = (mimo_usage or {}).get(bucket.key)
+        if mimo_slot is not None and _mimo.is_plan_host(bucket.host):
+            model_windows.append(_mimo.month_window(
+                mimo_slot["plan"], mimo_slot["credits"], mimo_slot["unknown"]))
 
         out.append(with_contract({
             "group": bucket.name,
@@ -1755,6 +1790,13 @@ def collect(live_override=None):
     except Exception:  # noqa: BLE001
         plan_series = {}
 
+    try:
+        mimo_usage = mimo_plan_usage(
+            [a for a in cfg.get("claude", []) if a.get("enabled", True) and a.get("dir")],
+            bucket_table, _mimo.parse_plans(cfg.get("mimoPlan"), now))
+    except Exception:  # noqa: BLE001 — คำนวณไม่ได้ก็เหลือแถว token เหมือนเดิม
+        mimo_usage = {}
+
     # อุ่นแคชของทุกบัญชีพร้อมกันก่อนเข้าลูป — สปอว์น CLI เรียงกันทีละบัญชีกินเวลา
     # รวมเกิน 20 วินาที ซึ่งกินเพดาน 45 วินาทีของเอนจินไปครึ่งหนึ่งทั้งที่รอเฉยๆ
     if live_enabled:
@@ -1839,7 +1881,7 @@ def collect(live_override=None):
         try:
             items.extend(bucket_rows(acc, bucket_table,
                                      parse_qwen_anchor(cfg.get("qwenWeeklyAnchor")),
-                                     plan_anchors, plan_series))
+                                     plan_anchors, plan_series, mimo_usage))
         except Exception:  # noqa: BLE001
             pass
 

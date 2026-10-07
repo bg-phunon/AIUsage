@@ -51,6 +51,7 @@ func menuBarSegments(snapshot: UsageSnapshot, now: Date, wokeRecently: Bool,
         ("GLM", "zai", "#B087E8"),
         ("Codex", "codex", "#67C587"),
         ("Muse", "muse", "#5B5BD6"),
+        ("Xiaomi MiMo", "xiaomi", "#FF6900"),
     ]
     func windowText(_ pct: Double?, _ conf: String?) -> String? {
         let sure = certainty(confidence: conf)
