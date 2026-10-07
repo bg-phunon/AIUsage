@@ -1406,6 +1406,41 @@ def parse_codex_resets(raw):
     return stamps or None
 
 
+def claude_config_resets(raw, label, now):
+    """ใบรีเซ็ตลิมิตของ Claude ที่จดมือ — ทางสำรองเมื่อ server ไม่ยอมบอก
+
+    server ตอบเรื่องใบรีเซ็ตเฉพาะ Claude Code (ineligible "surface") และ get_usage
+    ของ CLI ไม่แนบก้อนนี้มา (ตรวจซ้ำกับ CLI 2.1.292 วันที่ 2026-10-07) · `/limit-reset`
+    คือคำสั่งที่ใช้ใบจริง เอนจินห้ามเรียกเด็ดขาด จึงต้องจดจากบรรทัด
+    "/limit-reset to refill your limits · N left · use by DATE" ที่ CLI แสดงตอนชนเพดาน
+
+    รูปแบบ (key = label ของบัญชี):
+        {"work": {"count": 2, "useBy": "...Z"}}       ← ตามที่ CLI แสดง
+        {"work": {"expiring": ["...Z", "...Z"]}}      ← ใบละวัน แบบ codexLimitResets
+    คืนรูปเดียวกับ _clilive.reset_state · None = ไม่ได้ข้อมูล ต่างจาก count 0
+    """
+    if not isinstance(raw, dict):
+        return None
+    entry = raw.get(label)
+    if not isinstance(entry, dict):
+        return None
+    if isinstance(entry.get("expiring"), list):
+        stamps = [parse_ts(x) for x in entry["expiring"] if isinstance(x, str)]
+        stamps = [x for x in stamps if x is not None]
+        if not stamps:
+            return None
+        live = live_codex_resets(sorted(stamps), now)
+        return {"count": len(live), "expiring": live, "nextAvailableAt": None}
+    count = entry.get("count")
+    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+        return None
+    use_by = parse_ts(entry.get("useBy")) if isinstance(entry.get("useBy"), str) else None
+    if use_by is not None and use_by <= now:
+        return {"count": 0, "expiring": [], "nextAvailableAt": None}
+    return {"count": count, "expiring": [use_by] * count if use_by else [],
+            "nextAvailableAt": None}
+
+
 def live_codex_resets(resets, now):
     """เฉพาะใบที่ยังใช้ได้ — ใบที่เลยเวลาแล้วหายไปเอง ไม่ต้องรอใครมาลบ"""
     return [x for x in (resets or []) if x > now]
@@ -1766,6 +1801,8 @@ def collect(live_override=None):
                 reset_at = uf["resetAt"]
 
         resets = st.get("limitResets")
+        if resets is None:
+            resets = claude_config_resets(cfg.get("claudeLimitResets"), acc["label"], now)
         items.append(with_contract({
             "group": "Claude Code", "label": acc["label"], "window": "5 ชม.",
             "pct": round(pct, 1) if pct is not None else None,
@@ -1790,7 +1827,7 @@ def collect(live_override=None):
             # บัญชี subscription จ่ายเหมาไปแล้ว ตัวเลขนี้คือ "มูลค่าถ้ายิงผ่าน API"
             # ไม่ใช่บิล — UI ต้องไม่แสดงเหมือนเงินที่ไหลออกจริง
             "costKind": "notional" if (st.get("plan") and st.get("costKnown")) else None,
-            # ใบรีเซ็ตลิมิต — มาจาก CLI เท่านั้น ถ้า server ไม่ยอมบอกก็เป็น None ทั้งชุด
+            # ใบรีเซ็ตลิมิต — server ก่อน แล้วค่อยค่าที่จดมือใน claudeLimitResets
             "limitResets": resets["count"] if resets else None,
             "limitResetExpiresAt": (resets["expiring"][0].isoformat().replace("+00:00", "Z")
                                     if resets and resets["expiring"] else None),
