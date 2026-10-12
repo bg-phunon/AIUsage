@@ -144,4 +144,6 @@ def muse_stats(sessions_dir, now, week_days=7, day_start=None):
         "week": {"tokens": week_tokens, "calls": week_calls},
         "model": latest_model,
         "models": sorted(models),
+        # ไว้ให้ musetui ตัดสินว่ามีการใช้ใหม่หลังการถามครั้งก่อนไหม
+        "latestAt": latest_ts,
     }

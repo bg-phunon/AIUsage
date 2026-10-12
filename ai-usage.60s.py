@@ -46,6 +46,7 @@ from aiusage import liveusage as _liveu  # noqa: E402
 from aiusage import utilization as _util  # noqa: E402
 from aiusage import quota429 as _q429  # noqa: E402
 from aiusage import muselogs as _muse  # noqa: E402
+from aiusage import musetui as _musetui  # noqa: E402
 from aiusage import mimo as _mimo  # noqa: E402
 from aiusage import byteplus as _byteplus  # noqa: E402
 
@@ -2018,7 +2019,17 @@ def collect(live_override=None):
                 "error": ("%s: %s" % (type(exc).__name__, exc))[:120],
             }))
             continue
-        muse_anchor = parse_muse_anchor(cfg.get("museAnchor"))
+        raw_anchor = cfg.get("museAnchor")
+        if live_enabled:
+            # % จริงจากจอ TUI ของ Muse (ไม่เรียกโมเดล) — ถามเป็น process แยก ผลมา
+            # รอบถัดไป · อ่านไม่ได้ก็เหลือจุดที่จดมือเหมือนเดิม
+            try:
+                latest = ms.get("latestAt")
+                _musetui.kick(latest.timestamp() if latest is not None else None)
+                raw_anchor = _musetui.newer_anchor(raw_anchor, _musetui.live_anchor())
+            except Exception:  # noqa: BLE001
+                pass
+        muse_anchor = parse_muse_anchor(raw_anchor)
         mf = {"pct": None, "confidence": None, "weekPct": None,
               "weekConfidence": None, "resetAt": None, "weekResetAt": None}
         if muse_anchor is not None:
@@ -2046,7 +2057,7 @@ def collect(live_override=None):
                 mf[reset_key] = win["resetAt"]
         items.append(with_contract({
             "group": "Muse", "label": m.get("label", "Muse"), "window": "วันนี้",
-            # % มาจากจุดยึดที่จดมือจากหน้า usage — ไม่มี = เหลือแต่ยอด token
+            # % มาจากจุดยึด (อ่านจากจอ TUI หรือจดมือ) — ไม่มี = เหลือแต่ยอด token
             "pct": round(mf["pct"], 1) if mf["pct"] is not None else None,
             "pctEstimated": False,
             "tokens": ms["today"]["tokens"], "cost": None,
