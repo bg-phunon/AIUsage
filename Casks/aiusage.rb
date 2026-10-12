@@ -1,7 +1,7 @@
 cask "aiusage" do
-  version "0.0.0"
+  version "1.2.0"
   # ค่าจริงถูกเขียนทับโดย .github/workflows/release.yml ตอนออกรุ่น
-  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+  sha256 "a7da8fd4fcd7d157de1a3de8f027f47ffc76466801d1da13ebbcc2e94d0376bc"
 
   url "https://github.com/bg-phunon/AIUsage/releases/download/v#{version}/AIUsage.zip"
   name "AI Usage"
