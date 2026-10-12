@@ -84,6 +84,5 @@ log stream --predicate 'process == "AIUsage"' --level error
 
 - Qwen Cloud ยังไม่มีแหล่ง % — Alibaba ไม่ประกาศสูตร token → credit และไม่มี API สาธารณะ
 - GLM coding plan หมดอายุ — endpoint คืน "ไม่มี coding plan" ตอนนี้ ถ้าต่ออายุต้องรองรับทั้งสองแบบ
-- ยังไม่ได้ push ขึ้น GitHub — `Casks/aiusage.rb` กับ README ชี้ไป `bg-phunon/AIUsage` ที่ยังไม่มีจริง
 - ยังไม่มี Sparkle — ตอนนี้อัปเดตผ่าน `brew upgrade --cask aiusage` ถ้าจะใส่ต้องประกาศ `auto_updates true` ใน cask ไม่งั้น brew กับ Sparkle จะแย่งกันอัปเดต
 - ไม่มี Developer ID/notarization — cask ต้องลงด้วย `--no-quarantine`
