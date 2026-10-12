@@ -40,12 +40,14 @@ SELF = os.path.abspath(__file__)
 sys.path.insert(0, os.path.join(os.path.dirname(SELF), "engine"))
 sys.path.insert(0, os.path.dirname(SELF))
 from aiusage import buckets as _buckets  # noqa: E402
+from aiusage import ccs as _ccs  # noqa: E402
 from aiusage import clilive as _clilive  # noqa: E402
 from aiusage import liveusage as _liveu  # noqa: E402
 from aiusage import utilization as _util  # noqa: E402
 from aiusage import quota429 as _q429  # noqa: E402
 from aiusage import muselogs as _muse  # noqa: E402
 from aiusage import mimo as _mimo  # noqa: E402
+from aiusage import byteplus as _byteplus  # noqa: E402
 
 BLOCK_HOURS = 5
 WEEK_DAYS = 7
@@ -159,7 +161,13 @@ def write_json(path, data):
 
 # ── ค้นหา config dir ของแต่ละ Claude account ────────────────────────────────
 def discover_claude_dirs():
+    # บัญชีตาม config.yaml ของ ccs ก่อน (เคารพ CCS_DIR/CCS_HOME แบบที่ ccs ทำ)
+    # แล้วค่อย glob ที่อยู่ปริยาย — instance ที่ไม่อยู่ใน config แล้วยังมี log เก่าให้นับ
+    ccs_home = _ccs.ccs_dir()
     cands = [os.path.join(HOME, ".claude")]
+    cands += [os.path.join(ccs_home, "instances", name)
+              for name in _ccs.read_config(ccs_home)["accounts"]]
+    cands += sorted(glob.glob(os.path.join(ccs_home, "instances", "*")))
     cands += sorted(glob.glob(os.path.join(HOME, ".ccs", "instances", "*")))
     cands += sorted(glob.glob(os.path.join(HOME, ".config", "ccs", "instances", "*")))
     cands += sorted(glob.glob(os.path.join(HOME, ".claude-*")))
@@ -1072,7 +1080,7 @@ def token_plan_hits(config_dir, since, table=None):
 
     seen_at คือเวลาที่เห็นคำประกาศครั้งล่าสุด ต่อถัง ต่อหน้าต่าง — คนละเรื่องกับเวลาที่สแกนเจอ
     """
-    table = table or {}
+    table = table if table is not None else {}
     pattern = os.path.join(config_dir, "projects", "**", "*.jsonl")
     cutoff = since.timestamp() - 3600
     found = {}
@@ -1081,7 +1089,7 @@ def token_plan_hits(config_dir, since, table=None):
     def owner(model):
         if not _buckets.is_real_model(model):
             return None
-        bucket = _buckets.bucket_for_model(model, table)
+        bucket = _buckets.bucket_for_model(model, table, config_dir)
         return bucket.key if _buckets.is_token_plan(bucket) else None
 
     for path in glob.iglob(pattern, recursive=True):
@@ -1223,7 +1231,7 @@ def plan_token_series(accounts, table, keys, since):
         for ts, usage, model in claude_entries(acc["dir"], since):
             if not _buckets.is_real_model(model):
                 continue
-            key = _buckets.bucket_for_model(model, table).key
+            key = _buckets.bucket_for_model(model, table, acc["dir"]).key
             if key in series:
                 series[key].append((ts, total_tokens(usage)))
     return series
@@ -1244,7 +1252,7 @@ def mimo_plan_usage(accounts, table, plans):
         for ts, usage, model in claude_entries(acc["dir"], since):
             if not _buckets.is_real_model(model):
                 continue
-            key = _buckets.bucket_for_model(model, table).key
+            key = _buckets.bucket_for_model(model, table, acc["dir"]).key
             slot = out.get(key)
             if slot is None or ts < slot["plan"]["start"] or ts >= slot["plan"]["resetAt"]:
                 continue
@@ -1256,8 +1264,28 @@ def mimo_plan_usage(accounts, table, plans):
     return out
 
 
+def byteplus_plan_series(accounts, table, plans, now):
+    """(เวลา, token) ของทุก request ที่เข้าแผน BytePlus Coding Plan — รวมทุกบัญชี Claude
+
+    โควตาของแผนวัดเป็น token ไม่ใช่จำนวน request (ดู aiusage/byteplus.py)
+    คืน {profile: [(datetime, tokens), ...]}
+    """
+    out = {key: [] for key in plans}
+    if not out:
+        return out
+    since = min(_byteplus.earliest_needed(plan, now) for plan in plans.values())
+    for acc in accounts:
+        for ts, usage, model in claude_entries(acc["dir"], since):
+            if not _buckets.is_real_model(model):
+                continue
+            bucket = _buckets.bucket_for_model(model, table, acc["dir"])
+            if bucket.key in out and _byteplus.is_plan_endpoint(bucket.host, bucket.path):
+                out[bucket.key].append((ts, total_tokens(usage)))
+    return out
+
+
 def bucket_rows(acc, table, qwen_anchor=None, plan_anchors=None, plan_series=None,
-                mimo_usage=None):
+                mimo_usage=None, byteplus=None):
     """แยก traffic ที่ไม่ใช่ Anthropic ตาม endpoint ของถังโควตา"""
     since = now_utc() - timedelta(days=WEEK_DAYS)
     entries = claude_entries(acc["dir"], since)
@@ -1265,7 +1293,7 @@ def bucket_rows(acc, table, qwen_anchor=None, plan_anchors=None, plan_series=Non
     for row in entries:
         if not _buckets.is_real_model(row[2]):
             continue  # <synthetic> ไม่ใช่ provider อย่าให้มันงอกเป็นถัง
-        bucket = _buckets.bucket_for_model(row[2], table)
+        bucket = _buckets.bucket_for_model(row[2], table, acc["dir"])
         if bucket.key == _buckets.ANTHROPIC.key:
             continue
         grouped.setdefault(bucket, []).append(row)
@@ -1369,6 +1397,16 @@ def bucket_rows(acc, table, qwen_anchor=None, plan_anchors=None, plan_series=Non
             model_windows.append(_mimo.month_window(
                 mimo_slot["plan"], mimo_slot["credits"], mimo_slot["unknown"]))
 
+        # BytePlus Coding Plan — % ทั้งสามหน้าต่างจาก token ใน log (aiusage/byteplus.py)
+        bp_fields = None
+        bp_plan, bp_series = (byteplus or {}).get(bucket.key) or (None, None)
+        if bp_plan is not None and _byteplus.is_plan_endpoint(bucket.host, bucket.path):
+            bp_fields = _byteplus.plan_fields(bp_plan, bp_series, now)
+            pct, conf = bp_fields["pct"], bp_fields["confidence"]
+            week_pct, week_conf = bp_fields["weekPct"], bp_fields["weekConfidence"]
+            source = "formula"
+            model_windows.extend(bp_fields["modelWindows"])
+
         out.append(with_contract({
             "group": bucket.name,
             "label": acc["label"],
@@ -1385,8 +1423,10 @@ def bucket_rows(acc, table, qwen_anchor=None, plan_anchors=None, plan_series=Non
             # ไม่รู้ราคา → None ไม่ใช่ 0.0 · ศูนย์ที่แปลว่า "ไม่รู้" อ่านเป็น "ฟรี"
             "cost": round(block_summary["cost"], 2) if (known and block_summary) else None,
             "calls": block_summary["calls"] if block_summary else 0,
-            "resetAt": (reset_at.isoformat().replace("+00:00", "Z") if reset_at
+            "resetAt": (bp_fields["resetAt"] if bp_fields
+                        else reset_at.isoformat().replace("+00:00", "Z") if reset_at
                         else (block["end"].isoformat().replace("+00:00", "Z") if block else None)),
+            "weekResetAt": bp_fields["weekResetAt"] if bp_fields else None,
             "weekTokens": week["tokens"],
             "weekCost": round(week["cost"], 2) if known else None,
             "weekPct": week_pct,
@@ -1797,6 +1837,15 @@ def collect(live_override=None):
     except Exception:  # noqa: BLE001 — คำนวณไม่ได้ก็เหลือแถว token เหมือนเดิม
         mimo_usage = {}
 
+    try:
+        bp_plans = _byteplus.parse_plans(cfg.get("byteplusPlan"), now)
+        bp_series = byteplus_plan_series(
+            [a for a in cfg.get("claude", []) if a.get("enabled", True) and a.get("dir")],
+            bucket_table, bp_plans, now)
+        byteplus_usage = {k: (bp_plans[k], bp_series.get(k, [])) for k in bp_plans}
+    except Exception:  # noqa: BLE001 — คำนวณไม่ได้ก็เหลือแถว token เหมือนเดิม
+        byteplus_usage = {}
+
     # อุ่นแคชของทุกบัญชีพร้อมกันก่อนเข้าลูป — สปอว์น CLI เรียงกันทีละบัญชีกินเวลา
     # รวมเกิน 20 วินาที ซึ่งกินเพดาน 45 วินาทีของเอนจินไปครึ่งหนึ่งทั้งที่รอเฉยๆ
     if live_enabled:
@@ -1881,7 +1930,8 @@ def collect(live_override=None):
         try:
             items.extend(bucket_rows(acc, bucket_table,
                                      parse_qwen_anchor(cfg.get("qwenWeeklyAnchor")),
-                                     plan_anchors, plan_series, mimo_usage))
+                                     plan_anchors, plan_series, mimo_usage,
+                                     byteplus_usage))
         except Exception:  # noqa: BLE001
             pass
 
