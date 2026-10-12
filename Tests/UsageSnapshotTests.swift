@@ -109,9 +109,10 @@ final class UsageSnapshotTests: XCTestCase {
 
     func testEveryResetGetsItsOwnRow() {
         let now = Date(timeIntervalSince1970: 1_789_000_000)
-        let rows = limitResetRows(codexWith([3600 * 24 * 23, 3600 * 24 * 24], from: now))
+        let offsets: [TimeInterval] = [3600 * 24 * 23, 3600 * 24 * 24]
+        let rows = limitResetRows(codexWith(offsets, from: now))
         XCTAssertEqual(rows.count, 2)
-        XCTAssertEqual(rows.map(\.extra), [0, 0])
+        XCTAssertEqual(rows.map { $0.extra }, [0, 0])
         XCTAssertEqual(rows[0].expiresAt, now.addingTimeInterval(3600 * 24 * 23))
     }
 
