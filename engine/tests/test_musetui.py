@@ -27,13 +27,18 @@ SCREEN = (
     "as of 2:17 PM\n")
 
 
+def parse(text, now):
+    # จอเป็นเวลาท้องถิ่นของเครื่อง — ปักเขตไว้ ไม่งั้นผ่านแค่บนเครื่อง UTC+7
+    return musetui.parse_screen(text, now, tz=BKK)
+
+
 def utc(*args):
     return datetime(*args, tzinfo=timezone.utc)
 
 
 class ParseScreenTest(unittest.TestCase):
     def test_reads_both_windows(self):
-        got = musetui.parse_screen(SCREEN, NOW)
+        got = parse(SCREEN, NOW)
         self.assertEqual(got["plan"], "everyday")
         self.assertEqual(got["session"]["usedPct"], 20)
         self.assertEqual(got["weekly"]["usedPct"], 6)
@@ -45,57 +50,57 @@ class ParseScreenTest(unittest.TestCase):
     def test_survives_ansi_between_words(self):
         raw = ("\x1b[2J\x1b[1;1HCurrent\x1b[1;20H20% used · Resets at 6:10 PM"
                "\x1b[2;1HWeekly\x1b[38;5;8m 6% used · Resets Oct 19 at 7:00 AM\x1b[0m")
-        got = musetui.parse_screen(musetui.strip_ansi(raw), NOW)
+        got = parse(musetui.strip_ansi(raw), NOW)
         self.assertEqual((got["session"]["usedPct"], got["weekly"]["usedPct"]), (20, 6))
 
     def test_last_redraw_wins(self):
         text = SCREEN.replace("20%", "18%") + SCREEN
-        self.assertEqual(musetui.parse_screen(text, NOW)["session"]["usedPct"], 20)
+        self.assertEqual(parse(text, NOW)["session"]["usedPct"], 20)
 
     def test_time_already_passed_today_means_tomorrow(self):
         text = "Current 3% used · Resets at 1:05 AM\n"
-        got = musetui.parse_screen(text, NOW)
+        got = parse(text, NOW)
         self.assertEqual(got["session"]["resetAt"].astimezone(BKK),
                          datetime(2026, 10, 13, 1, 5, tzinfo=BKK))
 
     def test_reset_a_few_seconds_ago_is_not_tomorrow(self):
         # จอละเอียดแค่นาที — 18:10:30 ยังต้องอ่าน "6:10 PM" เป็นวันนี้
         now = datetime(2026, 10, 12, 18, 10, 30, tzinfo=BKK)
-        got = musetui.parse_screen("Current 99% used · Resets at 6:10 PM\n", now)
+        got = parse("Current 99% used · Resets at 6:10 PM\n", now)
         self.assertEqual(got["session"]["resetAt"].astimezone(BKK),
                          datetime(2026, 10, 12, 18, 10, tzinfo=BKK))
 
     def test_midnight_and_noon(self):
-        got = musetui.parse_screen(
+        got = parse(
             "Current 1% used · Resets at 12:30 AM\n"
             "Weekly 1% used · Resets Oct 19 at 12:00 PM\n", NOW)
         self.assertEqual(got["session"]["resetAt"].astimezone(BKK).hour, 0)
         self.assertEqual(got["weekly"]["resetAt"].astimezone(BKK).hour, 12)
 
     def test_24h_clock(self):
-        got = musetui.parse_screen("Current 5% used · Resets at 18:10\n", NOW)
+        got = parse("Current 5% used · Resets at 18:10\n", NOW)
         self.assertEqual(got["session"]["resetAt"].astimezone(BKK).hour, 18)
 
     def test_weekly_across_new_year(self):
         now = datetime(2026, 12, 29, 9, 0, tzinfo=BKK)
-        got = musetui.parse_screen("Weekly 6% used · Resets Jan 4 at 7:00 AM\n", now)
+        got = parse("Weekly 6% used · Resets Jan 4 at 7:00 AM\n", now)
         self.assertEqual(got["weekly"]["resetAt"].astimezone(BKK),
                          datetime(2027, 1, 4, 7, 0, tzinfo=BKK))
 
     def test_over_quota_is_kept_verbatim(self):
-        got = musetui.parse_screen("Current 104% used · Resets at 6:10 PM\n", NOW)
+        got = parse("Current 104% used · Resets at 6:10 PM\n", NOW)
         self.assertEqual(got["session"]["usedPct"], 104)
 
     def test_one_window_is_still_an_answer(self):
-        got = musetui.parse_screen("Weekly 6% used · Resets Oct 19 at 7:00 AM\n", NOW)
+        got = parse("Weekly 6% used · Resets Oct 19 at 7:00 AM\n", NOW)
         self.assertNotIn("session", got)
         self.assertEqual(got["weekly"]["usedPct"], 6)
 
     def test_unreadable_screen_is_none_not_zero(self):
-        self.assertIsNone(musetui.parse_screen("Do you trust this workspace?", NOW))
-        self.assertIsNone(musetui.parse_screen("Current usage · unavailable", NOW))
+        self.assertIsNone(parse("Do you trust this workspace?", NOW))
+        self.assertIsNone(parse("Current usage · unavailable", NOW))
         self.assertIsNone(
-            musetui.parse_screen("Current 20% used · Resets at 25:99 PM", NOW))
+            parse("Current 20% used · Resets at 25:99 PM", NOW))
 
 
 class MergeAnchorTest(unittest.TestCase):

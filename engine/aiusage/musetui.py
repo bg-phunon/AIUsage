@@ -57,9 +57,9 @@ def strip_ansi(raw: str) -> str:
     return _ESC.sub("", _CSI.sub("\n", _OSC.sub("", raw)))
 
 
-def _reset_time(m, prefix, now):
+def _reset_time(m, prefix, now, tz=None):
     """เวลารีเซ็ตบนจอเป็นเวลาท้องถิ่น ไม่มีปี และหน้าต่าง 5 ชม. ไม่มีวันที่"""
-    local = now.astimezone()
+    local = now.astimezone(tz)
     hour, minute = int(m.group(prefix + "h")), int(m.group(prefix + "m"))
     ap = (m.group(prefix + "ap") or "").lower()
     if ap:
@@ -87,11 +87,12 @@ def _reset_time(m, prefix, now):
     return at.astimezone(timezone.utc)
 
 
-def parse_screen(text: str, now: datetime):
+def parse_screen(text: str, now: datetime, tz=None):
     """จอ `/upgrade` → {"plan", "session": {usedPct, resetAt}, "weekly": {...}}
 
     อ่านได้ช่องเดียวก็คืนช่องนั้น · ไม่เจอเลย = None (จอยังไม่ขึ้น หรือ Muse เปลี่ยน
-    ข้อความ — ผู้เรียกถอยไปใช้จุดที่จดมือ ห้ามเดา)
+    ข้อความ — ผู้เรียกถอยไปใช้จุดที่จดมือ ห้ามเดา) · tz มีไว้ให้เทสต์ปักเขตเวลาเอง
+    เรียกจริงปล่อย None = เขตเวลาของเครื่อง ซึ่งเป็นเขตเดียวกับที่ TUI ใช้วาดจอ
     """
     out = {}
     for key, rx, prefix in (("session", _CURRENT, "c"), ("weekly", _WEEKLY, "w")):
@@ -100,7 +101,7 @@ def parse_screen(text: str, now: datetime):
             pass  # จอวาดซ้ำได้หลายรอบ — เอารอบล่าสุด
         if found is None:
             continue
-        reset = _reset_time(found, prefix, now)
+        reset = _reset_time(found, prefix, now, tz)
         if reset is not None:
             out[key] = {"usedPct": int(found.group(prefix + "pct")), "resetAt": reset}
     if not out:
