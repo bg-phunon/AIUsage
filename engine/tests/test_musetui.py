@@ -237,11 +237,78 @@ class StoreTest(unittest.TestCase):
             json.dump({"triedAt": 5, "fetchedAt": 5, "anchor": {"at": "x"}}, fh)
         self.assertFalse(musetui.probe(self.path, fetch=lambda: None,
                                        clock=lambda: 99))
-        self.assertEqual(self.read(), {"triedAt": 5, "fetchedAt": 5,
-                                       "anchor": {"at": "x"}})
+        store = self.read()
+        self.assertEqual(store["triedAt"], 5)
+        self.assertEqual(store["fetchedAt"], 5)
+        self.assertEqual(store["anchor"], {"at": "x"})
 
     def test_live_anchor_missing_file(self):
         self.assertIsNone(musetui.live_anchor(self.path))
+
+    def test_failed_probe_records_error_for_diagnosis(self):
+        # เคสจริง 2026-10-29: probe ล้มเงียบๆ ~48 นาที ไม่มีร่องรอยให้สืบเลย
+        with open(self.path, "w", encoding="utf-8") as fh:
+            json.dump({"triedAt": 5, "fetchedAt": 5, "anchor": {"at": "x"}}, fh)
+        self.assertFalse(musetui.probe(self.path, fetch=lambda: None,
+                                       clock=lambda: 99))
+        store = self.read()
+        self.assertEqual(store["anchor"], {"at": "x"})
+        self.assertEqual(store["fetchedAt"], 5)
+        self.assertEqual(store["lastErrorAt"], 99)
+        self.assertTrue(store["lastError"])
+
+    def test_successful_probe_clears_error(self):
+        with open(self.path, "w", encoding="utf-8") as fh:
+            json.dump({"triedAt": 5, "lastError": "screen_unparsed",
+                       "lastErrorAt": 5}, fh)
+        reading = {"plan": "everyday",
+                   "session": {"usedPct": 20, "resetAt": utc(2026, 10, 12, 11, 10)},
+                   "weekly": {"usedPct": 6, "resetAt": utc(2026, 10, 19, 0, 0)}}
+        now = utc(2026, 10, 12, 7, 17).timestamp()
+        self.assertTrue(musetui.probe(self.path, fetch=lambda: reading,
+                                      clock=lambda: now))
+        store = self.read()
+        self.assertNotIn("lastError", store)
+        self.assertNotIn("lastErrorAt", store)
+
+
+FAKE_TUI = '''#!{python}
+import os, sys, tty
+tty.setraw(0)
+os.write(1, b"splash -- still starting\\r\\n")
+buf = b""
+seen = 0
+while True:
+    chunk = os.read(0, 4096)
+    if not chunk:
+        break
+    buf += chunk
+    if b"/exit" in buf:
+        break
+    if b"/upgrade" in buf:
+        seen += 1
+        buf = b""
+        if seen >= 2:
+            os.write(1, {screen!r}.encode())
+        else:
+            # ครั้งแรก TUI ยังไม่พร้อม — คำสั่งไม่ทำงาน จอไม่มีเลขเลย
+            os.write(1, b"loading...\\r\\n")
+'''
+
+
+class FetchRetryTest(unittest.TestCase):
+    def test_second_upgrade_attempt_rescues_a_slow_tui(self):
+        # พิมพ์ /upgrade ก่อน TUI พร้อม คำสั่งหายเฉยๆ — ต้องลองซ้ำในเซสชันเดิม
+        # ไม่ใช่รอโทษ 15 นาทีของ triedAt (เคสจริง 2026-10-29: % หาย ~48 นาที)
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "fake-muse")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(FAKE_TUI.format(python=sys.executable, screen=SCREEN))
+            os.chmod(path, 0o755)
+            got = musetui.fetch_from_tui(binary=path)
+        self.assertIsNotNone(got)
+        self.assertEqual(got["session"]["usedPct"], 20)
+        self.assertEqual(got["weekly"]["usedPct"], 6)
 
 
 if __name__ == "__main__":

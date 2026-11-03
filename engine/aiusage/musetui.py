@@ -289,12 +289,22 @@ def fetch_from_tui(timeout: float = 30.0, binary=None, now=None):
         fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 50, 160, 0, 0))
         pump(3, until=lambda: False)  # ต่ออายุ credential + โหลด skill ก่อนรับคีย์
         pump(9)
-        raw = b""
-        type_line("/upgrade")
-        result = pump(8, until=read_screen)
-        if result is None:
-            result = parse_screen(strip_ansi(raw.decode("utf-8", "replace")),
-                                  now or datetime.now(timezone.utc))
+        for _ in range(3):
+            if time.time() >= end:
+                break
+            raw = b""
+            type_line("/upgrade")
+            result = pump(8, until=read_screen)
+            if result is None:
+                result = parse_screen(strip_ansi(raw.decode("utf-8", "replace")),
+                                      now or datetime.now(timezone.utc))
+            if result is not None:
+                break
+            # พิมพ์ก่อน TUI พร้อม คำสั่งหายเงียบๆ และจอไม่วาดซ้ำเอง (เคสจริง
+            # 2026-10-29: % หาย ~48 นาที) — ลองใหม่ในเซสชันเดิม ดีกว่ารอโทษ
+            # triedAt อีก 15 นาที รอบที่ช้ากว่าคือรอบที่ TUI พร้อมกว่าแล้ว
+            os.write(fd, b"\x1b")
+            pump(1, until=lambda: False)
         os.write(fd, b"\x1b")
         pump(0.5, until=lambda: False)
         type_line("/exit")
@@ -333,9 +343,18 @@ def fetch_from_tui(timeout: float = 30.0, binary=None, now=None):
 
 
 def probe(path=None, fetch=None, clock=time.time) -> bool:
-    """ถามหนึ่งครั้งแล้วเก็บผลลงแคช — คืนว่าอ่านเลขได้ไหม"""
+    """ถามหนึ่งครั้งแล้วเก็บผลลงแคช — คืนว่าอ่านเลขได้ไหม
+
+    ล้มเหลวต้องทิ้งร่องรอยไว้ในแคช (lastError/lastErrorAt): process นี้ถูกปล่อย
+    แยกโดย stdout/stderr ทิ้งหมด ถ้าไม่จดตรงนี้จะไม่มีอะไรให้สืบเลยว่า % หาย
+    เพราะอะไร (เคสจริง 2026-10-29: ล้มเงียบ ~48 นาที)
+    """
     path = path or CACHE_PATH
-    reading = (fetch or fetch_from_tui)()
+    error = None
+    try:
+        reading = (fetch or fetch_from_tui)()
+    except Exception as exc:  # noqa: BLE001 — จดชนิดไว้ ไม่จดข้อความ (อาจมี path)
+        reading, error = None, type(exc).__name__
     store = _read_store(path)
     store["triedAt"] = store.get("triedAt") or clock()
     if reading is not None:
@@ -343,6 +362,11 @@ def probe(path=None, fetch=None, clock=time.time) -> bool:
         store["fetchedAt"] = now
         store["anchor"] = merge_anchor(store.get("anchor"), reading,
                                        datetime.fromtimestamp(now, timezone.utc))
+        store.pop("lastError", None)
+        store.pop("lastErrorAt", None)
+    else:
+        store["lastError"] = error or "screen_unparsed"
+        store["lastErrorAt"] = clock()
     _write_store(path, store)
     return reading is not None
 
