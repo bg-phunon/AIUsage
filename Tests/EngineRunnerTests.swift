@@ -84,4 +84,13 @@ final class EngineRunnerTests: XCTestCase {
         XCTAssertEqual(EngineRunner.environment()["HOME"], ProcessInfo.processInfo.environment["HOME"],
                        "เอนจินอ่าน ~/.claude ผ่าน HOME — ตัดทิ้งแล้วมันหาบัญชีไม่เจอ")
     }
+
+    /// เพดาน timeout ต้องสูงกว่ารอบที่ช้าที่สุดที่วัดได้จริง — ไม่งั้น snapshot
+    /// ไม่เคยเขียนสำเร็จแล้วตัวเลขบนแถบเมนูแข็ง (เคสจริง 2026-10-20: รอบเต็มใช้
+    /// 106 วิตอน cache เย็น / 53 วิตอน cache อุ่น เพราะ codex_stats เดินย้อน
+    /// rollout ระดับ GB ทุกรอบ แต่เพดานอยู่ที่ 45 วิ เลยโดนฆ่าทิ้งทุกครั้ง)
+    func testDefaultTimeoutClearsSlowestObservedEngineRun() {
+        XCTAssertGreaterThanOrEqual(engineTimeout, 150,
+            "เอนจินเคยใช้ถึง 106 วิ — เพดานต่ำกว่านี้คือกลับไปค้างแบบเดิม")
+    }
 }

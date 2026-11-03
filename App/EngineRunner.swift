@@ -1,6 +1,8 @@
 import Foundation
 
-let engineTimeout: TimeInterval = 45
+/// รอบเต็มเคยใช้ถึง 106 วิ (cache เย็น, ล็อก Codex ระดับ GB — วัดจริง 2026-10-20)
+/// เพดานต้องสูงกว่านั้นแบบมีที่เผื่อ ไม่งั้น snapshot ไม่เคยเขียนสำเร็จแล้วแถบเมนูแข็ง
+let engineTimeout: TimeInterval = 180
 
 enum EngineError: Error {
     case alreadyRunning
