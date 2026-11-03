@@ -94,6 +94,15 @@ final class RowLayoutTests: XCTestCase {
         XCTAssertEqual(rowFootnote(muse, price: nil, now: Date()), "92k · 7d 1.23M")
     }
 
+    /// ชื่อโมเดลล่าสุดอยู่ท้ายเชิงอรรถ ไม่ใช่บน badge — badge มีไว้ให้ชื่อแผน
+    func testFootnoteEndsWithTheLatestModel() {
+        let muse = UsageItem(group: "Muse", label: "Muse", window: "วันนี้",
+                             tokens: 92_000, weekTokens: 1_234_567,
+                             plan: "Power", model: "muse-wonder-full-1.0")
+        XCTAssertEqual(rowFootnote(muse, price: nil, now: Date()),
+                       "92k · 7d 1.23M · muse-wonder-full-1.0")
+    }
+
     /// การ์ดที่มีตาราง % อยู่แล้ว — ยอดสัปดาห์อยู่ในแถวของมันเอง ห้ามมาเบิ้ลในเชิงอรรถ
     func testFootnoteKeepsWeekTokensOutOfWindowedCards() {
         let item = UsageItem(group: "Claude Code", label: "default", window: "5 ชม.",

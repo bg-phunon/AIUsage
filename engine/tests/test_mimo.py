@@ -74,6 +74,7 @@ class PlanConfigTest(unittest.TestCase):
     def test_reads_plan_and_cycle(self):
         p = mimo.parse_plans({"mimo": {"plan": "Pro", "resetAt": "2026-10-20T00:00:00Z"}},
                              self.NOW)
+        self.assertEqual(p["mimo"]["name"], "pro", "ชื่อแผนเดินทางไปด้วย — เอาไปขึ้น badge")
         self.assertEqual(p["mimo"]["budget"], 38_000_000_000)
         self.assertEqual(p["mimo"]["resetAt"], datetime(2026, 10, 20, tzinfo=timezone.utc))
         self.assertEqual(p["mimo"]["start"], datetime(2026, 9, 20, tzinfo=timezone.utc))

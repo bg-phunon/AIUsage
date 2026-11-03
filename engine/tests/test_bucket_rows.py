@@ -257,6 +257,24 @@ class MonthlyPlanTest(TwoTokenPlansTest):
         self.assertEqual((mw["pct"], mw["confidence"]), (100.0, "valid"))
         self.assertEqual(row["pctSource"], "official")
 
+    def test_row_badge_names_the_token_plan_tier(self):
+        self.traffic()
+        anchors = self.month_anchor()
+        anchors["albb"]["plan"] = "Pro"
+        row = engine.bucket_rows(self.acc, TWO_PLANS, None, anchors)[0]
+        self.assertEqual(row["plan"], "Token Plan Pro")
+
+    def test_row_badge_without_a_tier_name(self):
+        self.traffic()
+        row = engine.bucket_rows(self.acc, TWO_PLANS, None, self.month_anchor())[0]
+        self.assertEqual(row["plan"], "Token Plan")
+
+    def test_parse_plan_anchors_carries_plan_name(self):
+        parsed = engine.parse_plan_anchors({"albb": {
+            "plan": " Pro ", "usedPct": 1.5, "at": "2026-09-27T13:35:18Z",
+            "resetAt": "2026-10-27T16:00:00Z"}})
+        self.assertEqual(parsed["albb"]["plan"], "Pro")
+
     def test_parse_plan_anchors_skips_garbage(self):
         parsed = engine.parse_plan_anchors({
             "albb": {"usedPct": 1.5, "at": "2026-09-27T13:35:18Z", "resetAt": "2026-10-27T16:00:00Z"},
@@ -317,7 +335,7 @@ class MimoPlanTest(BucketRowsQwenHitTest):
     def setUp(self):
         super().setUp()
         self.table = {"mimo-v2.6-pro": MIMO}
-        self.plans = {"mimo": {"budget": 4_100_000_000,
+        self.plans = {"mimo": {"name": "lite", "budget": 4_100_000_000,
                                "start": self.now - timedelta(days=10),
                                "resetAt": self.now + timedelta(days=20)}}
 
@@ -336,6 +354,7 @@ class MimoPlanTest(BucketRowsQwenHitTest):
         usage["mimo"]["plan"] = dict(usage["mimo"]["plan"], budget=1_000_000)
         rows = engine.bucket_rows(self.acc, self.table, mimo_usage=usage)
         self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["plan"], "Lite")
         win = rows[0]["modelWindows"]
         self.assertEqual([w["label"] for w in win], ["1mo"])
         self.assertEqual(win[0]["confidence"], "estimated")
@@ -350,3 +369,35 @@ class MimoPlanTest(BucketRowsQwenHitTest):
         rows = engine.bucket_rows(self.acc, self.table)
         self.assertEqual(rows[0]["modelWindows"], [])
         self.assertIsNone(rows[0]["pct"])
+        self.assertIsNone(rows[0]["plan"], "ไม่มี config แผน = ไม่มี badge ไม่เดาชื่อให้")
+
+
+BP = Bucket("bp", "BytePlus", "ark.ap-southeast.bytepluses.com", False, "/api/coding")
+
+
+class BytePlusPlanBadgeTest(BucketRowsQwenHitTest):
+    """badge ของ BytePlus มาจากชื่อแผนใน config — เฉพาะ path /api/coding เท่านั้น"""
+
+    def setUp(self):
+        super().setUp()
+        self.table = {"glm-5.3-flash": BP}
+
+    def plans(self):
+        raw = {"bp": {"plan": "lite",
+                      "startAt": iso_z(self.now - timedelta(days=1)),
+                      "resetAt": iso_z(self.now + timedelta(days=29))}}
+        parsed = engine._byteplus.parse_plans(raw, self.now)
+        series = [(self.now - timedelta(hours=1), 150)]
+        return {"bp": (parsed["bp"], series)}
+
+    def test_coding_plan_row_gets_its_tier_as_badge(self):
+        self.write([usage_record(self.now - timedelta(hours=1), "glm-5.3-flash")])
+        rows = engine.bucket_rows(self.acc, self.table, byteplus=self.plans())
+        self.assertEqual(rows[0]["plan"], "Lite")
+
+    def test_payg_path_gets_no_badge(self):
+        payg = Bucket("bp", "BytePlus", "ark.ap-southeast.bytepluses.com", False, "/api/v3")
+        self.write([usage_record(self.now - timedelta(hours=1), "glm-5.3-flash")])
+        rows = engine.bucket_rows(self.acc, {"glm-5.3-flash": payg},
+                                  byteplus=self.plans())
+        self.assertIsNone(rows[0]["plan"])

@@ -4,7 +4,7 @@ import XCTest
 final class UsageSnapshotTests: XCTestCase {
     let json = """
     {"generated":"2026-08-07T06:40:00Z","items":[
-      {"group":"Claude Code","label":"default","window":"5 ชม.","pct":5.0,"pctSource":"official","confidence":"valid","dataFetchedAt":"2026-08-07T06:38:06Z","severity":"critical","activeLimit":"Fable","error":null,"local":false,"tokens":123456,"cost":1.5,"calls":20,"resetAt":"2026-08-07T07:10:00Z","weekTokens":999,"weekCost":9.9,"weekPct":96.0,"profile":null,"plan":"Max 20x"},
+      {"group":"Claude Code","label":"default","window":"5 ชม.","pct":5.0,"pctSource":"official","confidence":"valid","dataFetchedAt":"2026-08-07T06:38:06Z","severity":"critical","activeLimit":"Fable","error":null,"local":false,"tokens":123456,"cost":1.5,"calls":20,"resetAt":"2026-08-07T07:10:00Z","weekTokens":999,"weekCost":9.9,"weekPct":96.0,"profile":null,"plan":"Ultra"},
       {"group":"Claude Code","label":"work","window":"5 ชม.","pct":null,"pctSource":null,"confidence":null,"dataFetchedAt":null,"severity":null,"activeLimit":null,"error":"OSError: permission denied","local":false,"tokens":0,"cost":0,"calls":0,"resetAt":null,"weekTokens":0,"weekCost":0,"weekPct":null,"profile":null,"plan":null}
     ]}
     """.data(using: .utf8)!
@@ -16,6 +16,15 @@ final class UsageSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.items[0].activeLimit, "Fable")
         XCTAssertEqual(snapshot.items[1].error, "OSError: permission denied")
         XCTAssertNil(snapshot.items[1].pct)
+    }
+
+    /// plan คือชื่อแผน (badge) ส่วน model คือโมเดลล่าสุด — คนละเรื่องกัน
+    /// เดิม Muse ยัดชื่อโมเดลลงช่อง plan แล้วมันขึ้นไปเป็น badge เหมือนชื่อแผน
+    func testPlanAndModelAreSeparateFields() throws {
+        let json = #"{"generated":"2026-11-03T05:00:00Z","items":[{"group":"Muse","label":"Muse","window":"วันนี้","tokens":0,"calls":0,"weekTokens":0,"plan":"Power","model":"muse-wonder-full-1.0"}]}"#
+        let snap = try XCTUnwrap(UsageSnapshot.decode(from: Data(json.utf8)))
+        XCTAssertEqual(snap.items[0].plan, "Power")
+        XCTAssertEqual(snap.items[0].model, "muse-wonder-full-1.0")
     }
 
     func testDataAgeUsesFetchTime() throws {

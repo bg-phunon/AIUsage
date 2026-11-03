@@ -214,7 +214,7 @@ def _find_key(obj, keys, depth=0):
 
 
 def account_plan(config_dir):
-    """แผน subscription ของบัญชี (Max 20x / Max 5x / Pro / Team / ...)
+    """แผน subscription ของบัญชี (Ultra / Max / Pro / Team / ...)
     ไฟล์ oauthAccount อยู่คนละที่กันระหว่างบัญชี default กับบัญชี ccs:
     - default: HOME/.claude.json (ไฟล์นอก ~/.claude/)
     - ccs instance: <instance_dir>/.claude.json (อยู่ในตัว instance เอง)
@@ -236,15 +236,17 @@ def account_plan(config_dir):
 
 
 def plan_label(org_type, tier):
-    # tier บอกระดับ (20x/5x) ได้ละเอียดกว่า แต่บางทีเป็น codename ภายใน (เช่น "default_raven")
+    # Anthropic เปลี่ยนชื่อแผน 2026-10-30: Max 20x → Ultra, Max 5x → Max
+    # แต่ tier ใน oauthAccount ยังเป็นชื่อเก่า (default_claude_max_20x — วัดจริง
+    # 2026-11-03 ทั้งในโปรไฟล์บนเครื่องและสตริงที่ CLI ใช้เทียบ) ชื่อที่โชว์จึง
+    # ต้องแปลที่นี่ พร้อมเผื่อวันที่ server เปลี่ยน identifier เป็น ultra ตามมา
+    # tier บอกระดับได้ละเอียดกว่า แต่บางทีเป็น codename ภายใน (เช่น "default_raven")
     # ที่เดาระดับไม่ได้ — ตอนนั้นให้ organizationType (claude_team/claude_max/...) ตัดสินแทน
     t = (tier or "").lower()
     o = (org_type or "").lower()
-    if "20x" in t:
-        return "Max 20x"
-    if "5x" in t:
-        return "Max 5x"
-    if "max" in t or "max" in o:
+    if "ultra" in t or "ultra" in o or "20x" in t:
+        return "Ultra"
+    if "5x" in t or "max" in t or "max" in o:
         return "Max"
     if "team" in t or "team" in o:
         return "Team"
@@ -608,6 +610,7 @@ def codex_stats(codex_dir):
     windows = {}       # ช่อง → {limit_id → {"win": หน้าต่างดิบ, "ts": เวลาของ record}}
     last_activity = None
     credits = None     # (ts, ค่า) — เครดิตล่าสุดที่อ่านออก
+    plan_type = None   # (ts, ค่า) — plan_type ล่าสุดที่อ่านออก (pro/plus/...)
     limit_hit = None   # {"at", "retry"} — คำประกาศชนลิมิตล่าสุด
     week_cut = now_utc() - timedelta(days=WEEK_DAYS)
 
@@ -653,6 +656,10 @@ def codex_stats(codex_dir):
                 cr = parse_credits(rl.get("credits"))
                 if cr is not None and ts is not None and (credits is None or ts > credits[0]):
                     credits = (ts, cr)
+                pt = rl.get("plan_type")
+                if (isinstance(pt, str) and pt and ts is not None
+                        and (plan_type is None or ts > plan_type[0])):
+                    plan_type = (ts, pt)
                 for slot in ("primary", "secondary"):
                     win = rl.get(slot)
                     if not isinstance(win, dict):
@@ -674,6 +681,7 @@ def codex_stats(codex_dir):
             "windows": {slot: pick_live_window(buckets)
                         for slot, buckets in windows.items() if buckets},
             "credits": credits[1] if credits else None,
+            "planType": plan_type[1] if plan_type else None,
             "limitHit": limit_hit,
             "lastActivity": last_activity}
 
@@ -992,6 +1000,8 @@ SNAPSHOT_PATH = os.path.join(HOME, "Library", "Application Support", "AIUsage", 
 
 
 CONTRACT_DEFAULTS = {
+    # โมเดลล่าสุดของแถวที่รวมหลายโมเดล (Muse) — คนละช่องกับ plan ที่เป็นชื่อแผน
+    "model": None,
     "pctSource": None, "confidence": None, "dataFetchedAt": None,
     "severity": None, "activeLimit": None, "error": None, "local": False,
     "weekConfidence": None, "weekResetAt": None,
@@ -1173,8 +1183,9 @@ def parse_plan_anchors(raw):
     (แบบเก่า {"usedPct", "at", "resetAt"} ก้อนเดียวยังใช้ได้ = จุดเดียว)
     console ใช้ cookie (GetTokenPlanAccountDetail) เอนจินห้ามแตะ จึงต้องจดมาเอง
     แผน Alibaba Cloud Pro นับเป็นเดือน ไม่มีหน้าต่าง 5 ชม./สัปดาห์แบบ Qwen Cloud
+    "plan" ใน entry ไม่บังคับ — มีก็แค่เอาไปขึ้น badge ("Token Plan Pro")
 
-    คืน {profile: {"resetAt", "points": [{"usedPct","at"}] เรียงตามเวลา}}
+    คืน {profile: {"resetAt", "points": [{"usedPct","at"}] เรียงตามเวลา, "plan"}}
     """
     if not isinstance(raw, dict):
         return {}
@@ -1196,7 +1207,9 @@ def parse_plan_anchors(raw):
                 points.append({"usedPct": float(used), "at": at})
         if reset is not None and points:
             points.sort(key=lambda p: p["at"])
-            out[profile] = {"resetAt": reset, "points": points}
+            plan = entry.get("plan")
+            out[profile] = {"resetAt": reset, "points": points,
+                            "plan": plan.strip() if isinstance(plan, str) and plan.strip() else None}
     return out
 
 
@@ -1408,6 +1421,17 @@ def bucket_rows(acc, table, qwen_anchor=None, plan_anchors=None, plan_series=Non
             source = "formula"
             model_windows.extend(bp_fields["modelWindows"])
 
+        # badge ชื่อแผน — เฉพาะถังที่มีแหล่งบอกชื่อแผนจริง (config ของแผนนั้นเอง)
+        # ถังที่ไม่มีแหล่ง (Qwen Cloud/GLM) ยังเป็น None ไม่เดาชื่อแผนให้
+        row_plan = None
+        if bp_plan is not None and _byteplus.is_plan_endpoint(bucket.host, bucket.path):
+            row_plan = (bp_plan.get("name") or "").title() or None
+        elif mimo_slot is not None and _mimo.is_plan_host(bucket.host):
+            row_plan = (mimo_slot["plan"].get("name") or "").title() or None
+        elif (plan_anchors or {}).get(bucket.key):
+            anchor_plan = (plan_anchors[bucket.key].get("plan") or "").title()
+            row_plan = ("Token Plan " + anchor_plan).strip()
+
         out.append(with_contract({
             "group": bucket.name,
             "label": acc["label"],
@@ -1432,7 +1456,7 @@ def bucket_rows(acc, table, qwen_anchor=None, plan_anchors=None, plan_series=Non
             "weekCost": round(week["cost"], 2) if known else None,
             "weekPct": week_pct,
             "profile": acc.get("profile"),
-            "plan": None,
+            "plan": row_plan,
             "costKnown": known,
             "costCurrency": "USD" if known else None,
             "costSource": "anthropic_public_rate" if known else None,
@@ -1590,6 +1614,18 @@ def muse_plan_mult(name, default=1):
     return default
 
 
+MUSE_PLAN_LABELS = {"everyday": "Everyday", "high": "High", "power": "Power"}
+
+
+def muse_plan_label(name):
+    """ชื่อแผน Muse สำหรับ badge — ไม่มีชื่อในจุดยึดคือไม่รู้ ห้ามเดาเป็น Everyday
+    (ตัวคูณ fallback เป็น 1 ได้เพราะใช้แค่สเกล % แต่ชื่อที่โชว์ผิดคือข้อมูลเท็จ)"""
+    if not isinstance(name, str) or not name.strip():
+        return None
+    key = name.strip().lower()
+    return MUSE_PLAN_LABELS.get(key, key.replace("_", " ").title())
+
+
 def parse_muse_anchor(raw):
     """จุดยึดโควตา Muse จากหน้า usage — เก็บประวัติหลายจุดไว้วัดอัตราแบบ albb
 
@@ -1613,6 +1649,8 @@ def parse_muse_anchor(raw):
     if at is None:
         return None
     plan_mult = muse_plan_mult(raw.get("plan"))
+    raw_plan = raw.get("plan")
+    plan_name = raw_plan.strip().lower() if isinstance(raw_plan, str) and raw_plan.strip() else None
 
     def points(key):
         w = raw.get(key)
@@ -1645,7 +1683,8 @@ def parse_muse_anchor(raw):
     session, weekly = points("session"), points("weekly")
     if session is None and weekly is None:
         return None
-    return {"at": at, "mult": plan_mult, "session": session, "weekly": weekly}
+    return {"at": at, "mult": plan_mult, "plan": plan_name,
+            "session": session, "weekly": weekly}
 
 
 def estimate_muse_pct(anchor_points, series, now, current_mult=1):
@@ -1810,6 +1849,48 @@ def codex_live_resets(live):
                   and isinstance(c.get("expiresAt"), (int, float)))
 
 
+def codex_live_plan(live):
+    """planType จากคำตอบ app-server — เลือกก้อนเดียวกับ codex_live_windows"""
+    if not isinstance(live, dict):
+        return None
+    res = live.get("result") or {}
+    snap = (res.get("rateLimitsByLimitId") or {}).get("codex") or res.get("rateLimits") or {}
+    pt = snap.get("planType")
+    return pt if isinstance(pt, str) and pt else None
+
+
+def _codex_has_short_window(cs):
+    for entry in ((cs or {}).get("windows") or {}).values():
+        if not isinstance(entry, dict):
+            continue
+        win = entry.get("win") or {}
+        mins = win.get("window_minutes", win.get("windowMinutes"))
+        if isinstance(mins, (int, float)) and 0 < mins <= SHORT_WINDOW_MINUTES:
+            return True
+    return False
+
+
+def codex_plan_label(plan_type, cs):
+    """ชื่อแผน Codex สำหรับ badge — แผน prolite ไม่มีหน้าต่าง 5 ชม. แต่ server
+    ยังส่ง planType เป็น "pro" (วัดจริง 2026-11-03 ทั้ง app-server และ rollout
+    log) จึงแยก Pro Lite จากรูปหน้าต่าง ไม่ใช่จากชื่อที่ server เรียก
+
+    ไม่มีหน้าต่างให้ดูเลย = ตีความไม่ได้ คืนชื่อตามที่ server เรียกตรงๆ
+    """
+    if not isinstance(plan_type, str):
+        return None
+    key = " ".join(plan_type.strip().lower().replace("_", " ").replace("-", " ").split())
+    if not key:
+        return None
+    if key in ("prolite", "pro lite"):
+        return "Pro Lite"
+    if key == "pro":
+        windows = (cs or {}).get("windows") or {}
+        return "Pro Lite" if windows and not _codex_has_short_window(cs) else "Pro"
+    return {"plus": "Plus", "team": "Team", "enterprise": "Enterprise",
+            "free": "Free"}.get(key, key.title())
+
+
 def collect(live_override=None):
     """รวบรวมสถานะทุกบัญชีเป็นโครงสร้างเดียว ใช้ได้ทั้งเมนูบาร์และ widget"""
     cfg = load_config()
@@ -1970,6 +2051,8 @@ def collect(live_override=None):
             "weekCost": None,
             "weekPct": round(cf["weekPct"], 1) if cf["weekPct"] is not None else None,
             "profile": None,
+            # badge ชื่อแผน — app-server ก่อน แล้วค่อย plan_type ใน rollout log
+            "plan": codex_plan_label(codex_live_plan(live) or cs.get("planType"), cs),
             "limitResets": len(codex_resets) if codex_resets is not None else None,
             "limitResetExpiresAt": (codex_resets[0].isoformat().replace("+00:00", "Z")
                                     if codex_resets else None),
@@ -2067,7 +2150,11 @@ def collect(live_override=None):
             "weekTokens": ms["week"]["tokens"], "weekCost": None,
             "weekPct": (round(mf["weekPct"], 1)
                         if mf["weekPct"] is not None else None),
-            "profile": None, "plan": ms["model"],
+            "profile": None,
+            # badge คือชื่อแผนจริงจากจุดยึด (อ่านจาก TUI หรือจดมือ) — ชื่อโมเดล
+            # ล่าสุดอยู่ช่อง model (เดิมยัดชื่อโมเดลลงช่อง plan เพราะไม่มีช่องโมเดล)
+            "plan": muse_plan_label(muse_anchor.get("plan")) if muse_anchor else None,
+            "model": ms["model"],
             "pctSource": ("anchor" if (mf["pct"] is not None
                                        or mf["weekPct"] is not None) else None),
             "confidence": mf["confidence"],

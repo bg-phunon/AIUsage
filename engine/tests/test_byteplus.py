@@ -35,6 +35,10 @@ class EndpointTest(unittest.TestCase):
 class ParsePlansTest(unittest.TestCase):
     now = dt("2026-10-10T12:00:00Z")
 
+    def test_plan_name_is_carried_for_the_badge(self):
+        plans = byteplus.parse_plans(REAL, self.now)
+        self.assertEqual(plans["bp"]["name"], "lite")
+
     def test_garbage_is_ignored(self):
         self.assertEqual(byteplus.parse_plans(None, self.now), {})
         self.assertEqual(byteplus.parse_plans({"bp": {"plan": "ultra"}}, self.now), {})

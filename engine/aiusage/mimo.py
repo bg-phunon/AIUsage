@@ -96,7 +96,7 @@ def parse_plans(raw, now: datetime) -> Dict[str, dict]:
 
     resetAt คือวันต่ออายุรอบใดรอบหนึ่ง (ดูจาก console) แผนต่ออายุเองทุกเดือน
     วันที่ผ่านไปแล้วจึงเลื่อนไปรอบถัดไปเอง ไม่ต้องกลับมาแก้ทุกเดือน
-    คืน {profile: {"budget", "start", "resetAt"}}
+    คืน {profile: {"name", "budget", "start", "resetAt"}}
     """
     if not isinstance(raw, dict):
         return {}
@@ -116,7 +116,8 @@ def parse_plans(raw, now: datetime) -> Dict[str, dict]:
         while _add_months(reset, k - 1, day) > now:   # จดวันล่วงหน้าเกินเดือน
             k -= 1
         current = _add_months(reset, k, day)
-        out[profile] = {"budget": budget, "resetAt": current,
+        out[profile] = {"name": plan.strip().lower(), "budget": budget,
+                        "resetAt": current,
                         "start": _add_months(reset, k - 1, day)}
     return out
 

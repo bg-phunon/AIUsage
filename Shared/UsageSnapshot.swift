@@ -27,6 +27,9 @@ struct UsageItem: Codable, Identifiable, Hashable {
     var weekResetAt: Date?
     var profile: String?
     var plan: String?
+    /// โมเดลล่าสุดของแถวที่รวมหลายโมเดล (Muse) — คนละช่องกับ plan
+    /// เดิมชื่อโมเดลถูกยัดอยู่ใน plan แล้วขึ้นเป็น badge เหมือนชื่อแผน
+    var model: String? = nil
     var pctSource: String?
     var confidence: String?
     var weekConfidence: String? = nil
@@ -59,7 +62,7 @@ struct UsageItem: Codable, Identifiable, Hashable {
     enum CodingKeys: String, CodingKey {
         case group, label, window, pct, tokens, cost, calls, resetAt, weekTokens, weekCost, weekPct
         case weekResetAt
-        case profile, plan, pctSource, confidence, weekConfidence, dataFetchedAt, severity
+        case profile, plan, model, pctSource, confidence, weekConfidence, dataFetchedAt, severity
         case activeLimit, error, local, costKnown, costCurrency, costSource, costEstimated, costKind
         case credits, creditsUnlimited, limitResets, limitResetExpiresAt
         case limitResetsExpiring, limitResetAvailableAt
@@ -71,7 +74,7 @@ struct UsageItem: Codable, Identifiable, Hashable {
     init(group: String, label: String, window: String, pct: Double? = nil,
          tokens: Int = 0, cost: Double? = nil, calls: Int = 0, resetAt: Date? = nil,
          weekTokens: Int = 0, weekCost: Double? = nil, weekPct: Double? = nil,
-         weekResetAt: Date? = nil, profile: String? = nil, plan: String? = nil, pctSource: String? = nil,
+         weekResetAt: Date? = nil, profile: String? = nil, plan: String? = nil, model: String? = nil, pctSource: String? = nil,
          confidence: String? = nil, weekConfidence: String? = nil,
          dataFetchedAt: Date? = nil, severity: String? = nil, activeLimit: String? = nil,
          error: String? = nil, local: Bool? = nil, costKnown: Bool = false,
@@ -82,7 +85,7 @@ struct UsageItem: Codable, Identifiable, Hashable {
         self.tokens = tokens; self.cost = cost; self.calls = calls; self.resetAt = resetAt
         self.weekTokens = weekTokens; self.weekCost = weekCost; self.weekPct = weekPct
         self.weekResetAt = weekResetAt
-        self.profile = profile; self.plan = plan; self.pctSource = pctSource
+        self.profile = profile; self.plan = plan; self.model = model; self.pctSource = pctSource
         self.confidence = confidence; self.weekConfidence = weekConfidence
         self.dataFetchedAt = dataFetchedAt; self.severity = severity
         self.activeLimit = activeLimit; self.error = error; self.local = local
@@ -108,6 +111,7 @@ struct UsageItem: Codable, Identifiable, Hashable {
         weekResetAt = try c.decodeIfPresent(Date.self, forKey: .weekResetAt)
         profile = try c.decodeIfPresent(String.self, forKey: .profile)
         plan = try c.decodeIfPresent(String.self, forKey: .plan)
+        model = try c.decodeIfPresent(String.self, forKey: .model)
         pctSource = try c.decodeIfPresent(String.self, forKey: .pctSource)
         confidence = try c.decodeIfPresent(String.self, forKey: .confidence)
         weekConfidence = try c.decodeIfPresent(String.self, forKey: .weekConfidence)

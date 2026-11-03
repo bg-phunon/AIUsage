@@ -48,6 +48,8 @@ class ParseTest(unittest.TestCase):
                          [(18.0, 5), (20.0, 1)])
         self.assertEqual(a["mult"], 5)
         self.assertEqual(a["at"], NOW)
+        # ชื่อแผนต้องเดินทางมาด้วย — badge โชว์ชื่อแผนจริง ไม่ใช่แค่ตัวคูณ
+        self.assertEqual(a["plan"], "high")
 
     def test_unknown_plan_falls_back_to_everyday(self):
         a = engine.parse_muse_anchor({
@@ -56,6 +58,13 @@ class ParseTest(unittest.TestCase):
                 {"usedPct": 18, "at": iso(NOW)}]}})
         self.assertEqual(a["mult"], 1)
         self.assertEqual(a["session"]["points"][0]["mult"], 1)
+
+    def test_anchor_without_a_plan_name_says_so(self):
+        a = engine.parse_muse_anchor({
+            "at": iso(NOW),
+            "session": {"usedPct": 18, "resetAt": iso(NOW + timedelta(hours=3))},
+        })
+        self.assertIsNone(a["plan"], "ไม่รู้ชื่อแผน = None ไม่ใช่เดาเป็น everyday")
 
     def test_legacy_single_reading_still_works(self):
         a = engine.parse_muse_anchor({

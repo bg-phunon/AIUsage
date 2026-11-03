@@ -393,7 +393,7 @@ final class MenuBarLabelTests: XCTestCase {
     func testMuseShowsItsWeekTokensOnTheBar() {
         var muse = UsageItem(group: "Muse", label: "Muse", window: "วันนี้",
                              tokens: 3_510_003, weekTokens: 3_510_003,
-                             plan: "muse-spark-1.3-contributor")
+                             plan: "Power", model: "muse-spark-1.3-contributor")
         muse.local = false
         let segments = menuBarSegments(snapshot: snapshot([muse]), now: now,
                                        wokeRecently: false)

@@ -674,6 +674,9 @@ func rowFootnote(_ item: UsageItem, price: Price?, now: Date) -> String? {
     }
     if let cost = costLabel(item, price: price) { parts.append(cost) }
     if let credits = creditsLabel(item) { parts.append(credits) }
+    // โมเดลล่าสุดของแถวที่รวมหลายโมเดล (Muse) — เคยยัดอยู่ใน badge ชื่อแผน
+    // ไว้ท้ายสุดเพราะชื่อยาว ให้โดนตัดก่อนตัวเลขที่สำคัญกว่า
+    if let model = item.model { parts.append(model) }
     return parts.isEmpty ? nil : parts.joined(separator: " · ")
 }
 

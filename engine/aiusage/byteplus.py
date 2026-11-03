@@ -82,7 +82,7 @@ def parse_plans(raw, now: datetime) -> Dict[str, dict]:
                            "anchor": {"at": "...Z", "session": 36.71, "week": 6.15, "month": 3.07}}}
 
     resetAt ไม่บังคับ — ไม่มีก็ได้แค่ 5 ชม. กับ 7 วัน
-    คืน {profile: {"caps", "tz", "reset", "startAt", "anchor"}}
+    คืน {profile: {"name", "caps", "tz", "reset", "startAt", "anchor"}}
     """
     if not isinstance(raw, dict):
         return {}
@@ -104,7 +104,8 @@ def parse_plans(raw, now: datetime) -> Dict[str, dict]:
             pcts = {w: _pct(raw_anchor.get(w)) for w in WINDOWS}
             if at is not None and at <= now and any(v is not None for v in pcts.values()):
                 anchor = {"at": at, **pcts}
-        out[profile] = {"caps": caps, "tz": timezone(timedelta(hours=offset)),
+        out[profile] = {"name": plan.strip().lower(),
+                        "caps": caps, "tz": timezone(timedelta(hours=offset)),
                         "reset": _mimo._parse_ts(entry.get("resetAt")),
                         "startAt": _mimo._parse_ts(entry.get("startAt")),
                         "anchor": anchor}
