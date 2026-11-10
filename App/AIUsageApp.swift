@@ -95,6 +95,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let refreshTimer = Timer(timeInterval: 60, repeats: true) { [weak self] _ in self?.refresh() }
         RunLoop.main.add(refreshTimer, forMode: .common)
         timer = refreshTimer
+        // ทางทดสอบ: เปิดหน้าต่างเองหลังเริ่ม — ใช้ตรวจว่าเปิดแล้วไม่พังโดยไม่ต้องมีคนคลิก
+        if ProcessInfo.processInfo.environment["AIUSAGE_OPEN_PANEL"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.togglePopover() }
+        }
     }
 
     func popoverDidClose(_ notification: Notification) {
@@ -215,9 +219,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             model.snapshot = .load()
             refresh()
             if glassPanel == nil {
-                let hosting = NSHostingController(rootView: PopoverView(model: model, prefs: model.prefs))
-                hosting.sizingOptions = .preferredContentSize
-                glassPanel = GlassPanelController(content: hosting) { [weak self] in self?.updateBar() }
+                glassPanel = GlassPanelController(root: PopoverView(model: model, prefs: model.prefs)) {
+                    [weak self] in self?.updateBar()
+                }
             }
             glassPanel?.show(below: button)
         } else {
