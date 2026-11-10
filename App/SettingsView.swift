@@ -69,10 +69,13 @@ struct SettingsView: View {
                 }
             }
             .id(tab)
-            .transition(.opacity.combined(with: .offset(y: 6)))
+            // แค่จางเข้าจางออก — เคยเลื่อน + spring ทั้งก้อน พอ popover ยืดหดตามความสูงแท็บ
+            // ทุกอย่างกระตุกพร้อมกันดูแปลก (ผู้ใช้ทัก 2026-11-10)
+            .transition(.opacity.animation(.easeOut(duration: 0.14)))
+            // ความสูงคงที่ทุกแท็บ — popover ไม่ยืดหดทุกครั้งที่สลับ
+            .frame(minHeight: 400, alignment: .top)
         }
         .padding(14)
-        .animation(.spring(response: 0.38, dampingFraction: 0.88), value: tab)
         .onAppear { updateState = currentUpdateState() }
     }
 
@@ -81,7 +84,9 @@ struct SettingsView: View {
     private var tabBar: some View {
         HStack(spacing: 0) {
             ForEach(SettingsTab.allCases) { item in
-                Button { tab = item } label: {
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) { tab = item }
+                } label: {
                     Text(item.title)
                         .font(.system(size: 12, weight: tab == item ? .semibold : .regular))
                         .foregroundStyle(tab == item ? Color.primary : Color.secondary)
