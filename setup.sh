@@ -92,36 +92,10 @@ with open(tmp, "w", encoding="utf-8") as fh:
 os.replace(tmp, path)
 PYEOF
 
-# พาขอสิทธิ์ Keychain ต่อบัญชี — engine อ่าน token ด้วย /usr/bin/security
-# ถ้าไม่เคยกด "Always Allow" มันจะเด้งถามทุก 60 วิแล้วโดน timeout ฆ่าเงียบๆ
-# ทำตรงนี้ทีเดียวให้จบ: เรียกแบบ foreground ค้างรอจนผู้ใช้ตอบครบทุกบัญชี
-SERVICES=$(python3 -c "
-import json, os, sys
-sys.path.insert(0, os.path.join('$ROOT', 'engine'))
-from aiusage.liveusage import keychain_service
-try:
-    cfg = json.load(open(os.path.expanduser('~/.config/ai-usage/config.json')))
-except Exception:
-    cfg = {}
-seen = []
-for acc in cfg.get('claude', []):
-    if acc.get('enabled', True):
-        svc = keychain_service(acc['dir'])
-        if svc not in seen:
-            seen.append(svc)
-print('\n'.join(seen))
-" 2>/dev/null || true)
-if [ -n "$SERVICES" ]; then
-  echo "▸ ขอสิทธิ์ Keychain — ถ้ามีหน้าต่างเด้งถาม ให้กด \"Always Allow\" (อนุญาตเสมอ)"
-  while IFS= read -r svc; do
-    [ -n "$svc" ] || continue
-    if security find-generic-password -s "$svc" -w >/dev/null 2>&1; then
-      echo "  ✓ ${svc}"
-    else
-      echo "  ✗ ${svc} — ไม่ได้สิทธิ์หรือไม่มี token (บัญชีนั้นจะใช้แคชแทน % สด)"
-    fi
-  done <<< "$SERVICES"
-fi
+# ไม่พาขอสิทธิ์ Keychain ตอนติดตั้งแล้ว (2026-11-10) — เคยอ่าน token ทุกบัญชีทุกครั้งที่ลง
+# = หน้าต่างขอสิทธิ์เด้ง N ใบต่อการอัปเดตหนึ่งรอบ ผู้ใช้บ่นว่าขอหลายครั้งเกิน
+# % ของ Claude มาจาก CLI (clilive.py) ซึ่งไม่แตะ Keychain · ทาง Keychain เป็นแค่ทางสำรอง
+# ปล่อยให้ถามตอนที่ต้องใช้จริงเท่านั้น
 
 open "$INSTALLED"
 
