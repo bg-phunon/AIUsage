@@ -230,8 +230,14 @@ final class UsageSnapshotTests: XCTestCase {
     }
 
     func testABucketWithoutResetsSaysNothing() {
-        let it = UsageItem(group: "Claude Code", label: "work", window: "5 ชม.")
+        let it = UsageItem(group: "Qwen Cloud", label: "qwenc", window: "5 ชม.")
         XCTAssertNil(limitResetsTitle(it))
+    }
+
+    /// บัญชี Claude มีระบบใบรีเซ็ตเสมอ — ไม่มีข้อมูลต้องบอกว่าไม่รู้ ไม่ใช่เงียบหรือศูนย์
+    func testAClaudeAccountWithoutDataSaysUnknown() {
+        let it = UsageItem(group: "Claude Code", label: "work", window: "5 ชม.")
+        XCTAssertEqual(limitResetsTitle(it), "ใบรีเซ็ตลิมิต: ไม่ทราบ — เช็กด้วย /usage ใน Claude Code")
     }
 
     /// การ์ดใส่ได้บรรทัดเดียว รายละเอียดว่าใบไหนหมดเมื่อไหร่จึงอยู่ใน tooltip

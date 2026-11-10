@@ -20,25 +20,6 @@ struct VisualEffectBackground: NSViewRepresentable {
     }
 }
 
-/// Liquid Glass ของจริง (macOS 26) — กระจกระดับหน้าต่างที่หักเหสิ่งที่อยู่หลัง popover
-/// SwiftUI `.glassEffect` เห็นแค่ของใน view เดียวกัน พื้นหลังบานจึงต้องเป็น AppKit
-@available(macOS 26.0, *)
-struct GlassPanelBackground: NSViewRepresentable {
-    let cornerRadius: CGFloat
-
-    func makeNSView(context: Context) -> NSGlassEffectView {
-        let view = NSGlassEffectView()
-        view.cornerRadius = cornerRadius
-        // ย้อมมืดบางๆ — กระจกใสสนิทบนวอลเปเปอร์สว่างทำให้ตัวหนังสืออ่านไม่ออก
-        view.tintColor = NSColor(calibratedWhite: 0.05, alpha: 0.35)
-        return view
-    }
-
-    func updateNSView(_ view: NSGlassEffectView, context: Context) {
-        view.cornerRadius = cornerRadius
-    }
-}
-
 /// กลุ่มปุ่มกระจก — ปุ่มที่อยู่ใน container เดียวกันหลอมเป็นก้อนเดียวตอนใกล้กัน
 /// แบบ toolbar ของ macOS 26 · เครื่องเก่าได้ HStack ธรรมดา
 struct GlassCluster<Content: View>: View {
@@ -47,7 +28,8 @@ struct GlassCluster<Content: View>: View {
 
     var body: some View {
         if #available(macOS 26.0, *), enabled {
-            GlassEffectContainer(spacing: 6) { HStack(spacing: 6) { content } }
+            // tint ของทั้งบานทำให้ปุ่มกระจกกลายเป็นก้อนสีทึบ — ปุ่มระบบเป็นกระจกใสไอคอนขาวดำ
+            GlassEffectContainer(spacing: 6) { HStack(spacing: 6) { content } }.tint(nil)
         } else {
             HStack(spacing: 8) { content }
         }
@@ -149,8 +131,9 @@ struct PopoverView: View {
         .frame(width: 380, height: 560)
         .background { panelBackground }
         // accent ของสไตล์คุมสีปุ่ม/ลิงก์ทั้งบาน — ไม่งั้นสลับสไตล์แล้ว "ไม่เห็นต่าง"
-        .tint(model.designStyle.accent)
-        .preferredColorScheme(model.designStyle == .native ? nil : .dark)
+        .tint(useGlass ? Color.accentColor : model.designStyle.accent)
+        // กระจกของระบบปรับตามโหมดสว่าง/มืดเอง บังคับมืดคือกลับไปเป็นกล่องดำ
+        .preferredColorScheme(model.designStyle == .native || useGlass ? nil : .dark)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay {
             // กระจกจริงวาดขอบแสงของมันเอง เส้นของเราซ้อนแล้วดูหนา
@@ -278,7 +261,9 @@ struct PopoverView: View {
         // ทุกแบบต้องมีชั้นทึบรองเสมอ — vibrancy อย่างเดียวปล่อยให้วอลเปเปอร์
         // ทะลุขึ้นมาจนตัวหนังสืออ่านไม่ออก ความอ่านออกมาก่อนความสวย
         case .darkGlass where useGlass:
-            if #available(macOS 26.0, *) { GlassPanelBackground(cornerRadius: 18) }
+            // NSPopover บน macOS 26 เป็น Liquid Glass ของระบบอยู่แล้ว — ทาอะไรทับคือบังมัน
+            // (รอบแรกใส่ NSGlassEffectView ย้อมมืดซ้อนอีกชั้น ได้กล่องดำทึบ ไม่ใช่กระจก)
+            Color.clear
         case .darkGlass:
             // hudWindow blur แรงกว่า popover — ชั้นทึบจึงบางลงได้โดยตัวหนังสือยังอ่านออก
             // (บทเรียนเดิมคือ "ห้ามใสสนิท" ไม่ใช่ "ต้องทึบ 90%")
@@ -437,19 +422,22 @@ struct PopoverView: View {
         .padding(12)
         .background {
             RoundedRectangle(cornerRadius: 15, style: .continuous)
-                .fill(model.designStyle == .colorful
+                .fill(useGlass ? AnyShapeStyle(Color.primary.opacity(0.055))
+                      : model.designStyle == .colorful
                       ? AnyShapeStyle(cardFill(for: item))
                       : AnyShapeStyle(model.designStyle.cardGradient))
         }
         .overlay {
             // ขอบชั้นเดียว + แสงขอบบนจางๆ — สองเส้นหนาซ้อนกันคือสิ่งที่ทำให้ดู "หนา"
             // native ไม่มีแสงขอบเลย: กระจกคือภาษาของสไตล์ A ไม่ใช่ของหน้าต่างระบบ
+            // บนกระจกจริงการ์ดเป็นแผ่นจางๆ แบบ Control Center ไม่มีเส้นขอบ
             RoundedRectangle(cornerRadius: 15, style: .continuous)
                 .stroke(cardStroke(for: item), lineWidth: model.designStyle == .native ? 1 : 0.5)
+                .opacity(useGlass ? 0 : 1)
                 .overlay {
                     RoundedRectangle(cornerRadius: 15, style: .continuous)
                         .strokeBorder(model.designStyle.rimHighlight, lineWidth: 1)
-                        .opacity(model.designStyle == .colorful ? 0.55
+                        .opacity(useGlass ? 0 : model.designStyle == .colorful ? 0.55
                                  : model.designStyle == .native ? 0 : 0.35)
                 }
         }
@@ -494,7 +482,7 @@ struct PopoverView: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 13).padding(.vertical, 8)
-        .background(cardFill(for: item).opacity(0.6),
+        .background(useGlass ? Color.primary.opacity(0.04) : cardFill(for: item).opacity(0.6),
                     in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
@@ -724,7 +712,12 @@ func limitResetRows(_ item: UsageItem, limit: Int = 4) -> [ResetRow] {
 /// แปลว่า "อีกนานแค่ไหนจะรีเซ็ต" อยู่แล้ว คนอ่านจึงเข้าใจเป็น "ลิมิตจะรีเซ็ตในอีก
 /// 23 วัน" แทนที่จะเป็น "ใบนี้ใช้ได้อีก 23 วัน" — คนละเรื่องกันคนละทาง
 func limitResetsTitle(_ item: UsageItem, now: Date = Date()) -> String? {
-    guard let count = item.limitResets else { return nil }
+    guard let count = item.limitResets else {
+        // บัญชี Claude มีระบบใบรีเซ็ตเสมอ — เงียบหายทำให้อ่านว่าแอปไม่รองรับ
+        // ต้องบอกว่า "ไม่รู้" ไม่ใช่ศูนย์ (CLI จดสถานะให้เฉพาะบางบัญชี)
+        return item.group == "Claude Code" && item.local != true
+            ? "ใบรีเซ็ตลิมิต: ไม่ทราบ — เช็กด้วย /usage ใน Claude Code" : nil
+    }
     // CLI จดไว้แค่ว่ามีอย่างน้อยหนึ่งใบ — เขียน "1 ใบ" คือการเดาจำนวน
     if count > 0 && item.limitResetsAtLeast { return "มีใบรีเซ็ตลิมิต · ใช้ด้วย /limit-reset" }
     if count > 0 { return "ใบรีเซ็ตลิมิต \(count) ใบ" }
