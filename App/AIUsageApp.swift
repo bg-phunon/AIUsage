@@ -30,6 +30,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let updateNotifier = UpdateNotifier()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // รันเทสต์ = xcodebuild เปิดแอปตัว Debug ขึ้นมาเป็น host จริงๆ — ถ้าปล่อยให้มันทำงานเต็ม
+        // จะมีไอคอนตัวที่สองบนแถบเมนู รันเอนจิน และ *ขอสิทธิ์* (แจ้งเตือน/โฟลเดอร์/Keychain)
+        // ในฐานะแอปอีกตัวที่ลายเซ็นไม่เหมือนตัวที่ติดตั้ง (เคสจริง 2026-11-10: รันเทสต์ ~20 รอบ
+        // ผู้ใช้โดนขอสิทธิ์ไม่หยุด) ตอนเทสต์จึงไม่ทำอะไรเลย
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return }
         // ย้ายค่าที่เคยตั้งไว้ในกลไกเดิม (visibleMenuBarProviders) มาเป็น prefs.hidden
         // ครั้งเดียวตอนเปิดแอป — model.snapshot โหลดมาแล้วตั้งแต่ตอน UsageModel() ถูกสร้าง
         model.prefs.migrateVisibleGroups(.standard, allItems: model.snapshot.items)
