@@ -179,15 +179,16 @@ struct BentoView: View {
     private var others: [UsageItem] { items.filter { headlinePct($0) == nil } }
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 8) {
             if let hero {
                 heroTile(hero)
                     .id(hero.id)
                     .transition(.asymmetric(insertion: .scale(scale: 0.96).combined(with: .opacity),
                                             removal: .opacity))
             }
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
-                      spacing: 10) {
+            // Grid ไม่ใช่ LazyVGrid — lazy วัดความสูงไม่ครบ popover ที่สูงตามเนื้อหาจะเตี้ยเกิน
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)],
+                      spacing: 8) {
                 ForEach(Array(tiles.enumerated()), id: \.element.id) { index, item in
                     tile(item, index: index)
                         .opacity(appeared ? 1 : 0)
@@ -213,7 +214,7 @@ struct BentoView: View {
             VStack(alignment: .leading, spacing: 0) {
                 titleRow(item, logo: 16, font: 13)
                 Spacer(minLength: 6)
-                RollingNumber(value: pct, size: 56, estimated: window?.sure == .estimate)
+                RollingNumber(value: pct, size: 50, estimated: window?.sure == .estimate)
                 Spacer(minLength: 6)
                 HStack(spacing: 6) {
                     if sev != .calm {
@@ -229,8 +230,8 @@ struct BentoView: View {
             Spacer(minLength: 0)
             ArcGauge(pct: pct, sev: sev, caption: windowName(window?.label))
         }
-        .padding(.horizontal, 16).padding(.vertical, 14)
-        .frame(height: 158)
+        .padding(.horizontal, 16).padding(.vertical, 12)
+        .frame(height: 136)
         .background { tileShape(radius: 22) }
         .overlay { if sev == .critical { Shimmer().clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous)) } }
         .contextMenu { pinMenu(item) }
@@ -255,9 +256,9 @@ struct BentoView: View {
 
     @ViewBuilder private func tile(_ item: UsageItem, index: Int) -> some View {
         let rows = windowRows(item)
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             titleRow(item, logo: 14, font: 12.5)
-            RollingNumber(value: headlinePct(item) ?? 0, size: 30,
+            RollingNumber(value: headlinePct(item) ?? 0, size: 26,
                           estimated: headlineWindow(item)?.sure == .estimate)
             VStack(spacing: 5) {
                 MiniMeter(window: rows.first, label: "5h", delay: 0.08 + 0.05 * Double(index), now: now)
@@ -268,9 +269,9 @@ struct BentoView: View {
                 Text(note).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
             }
         }
-        .padding(.horizontal, 14).padding(.vertical, 12)
+        .padding(.horizontal, 13).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background { tileShape(radius: 20) }
+        .background { tileShape(radius: 18) }
         .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .onTapGesture { selected = item.id }
         .help("กดเพื่อขึ้นการ์ดใหญ่ · คลิกขวาเพื่อปักหมุด")
@@ -306,7 +307,7 @@ struct BentoView: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 14).padding(.vertical, 12)
-        .frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
         .background { tileShape(radius: 20) }
     }
 
@@ -322,10 +323,8 @@ struct BentoView: View {
     @ViewBuilder private func titleRow(_ item: UsageItem, logo: CGFloat, font: CGFloat) -> some View {
         HStack(spacing: 6) {
             ProviderLogo(group: item.group, size: logo, tint: logoTint(item.group))
-            Text(item.displayLabel).font(.system(size: font, weight: .semibold)).lineLimit(1)
-            if prefs.pinned.contains(item.id) {
-                Image(systemName: "pin.fill").font(.system(size: 8)).foregroundStyle(.secondary)
-            }
+            Text(item.displayLabel).font(.system(size: font, weight: .semibold))
+                .lineLimit(1).minimumScaleFactor(0.8)
             Spacer(minLength: 4)
             if let plan = item.plan {
                 Text(plan).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
@@ -335,12 +334,9 @@ struct BentoView: View {
     }
 
     private func tileShape(radius: CGFloat) -> some View {
+        // ไม่มีเส้นขอบ — แผ่นจางๆ บนกระจกพอแยกช่องได้แล้ว
         RoundedRectangle(cornerRadius: radius, style: .continuous)
-            .fill(Color.primary.opacity(0.07))
-            .overlay {
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
-            }
+            .fill(Color.primary.opacity(0.06))
     }
 
     @ViewBuilder private func pinMenu(_ item: UsageItem) -> some View {

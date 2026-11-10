@@ -39,11 +39,9 @@ struct GlassCluster<Content: View>: View {
 extension View {
     /// ปุ่มไอคอนบนหัว popover — กระจกเมื่อเปิดสไตล์ Liquid Glass บน macOS 26
     @ViewBuilder func headerButtonStyle(glass: Bool) -> some View {
-        if #available(macOS 26.0, *), glass {
-            self.buttonStyle(.glass).controlSize(.small)
-        } else {
-            self.buttonStyle(.borderless)
-        }
+        // ไม่มีกรอบ — ผู้ใช้ไม่ชอบปุ่มเป็นกล่อง (2026-11-10) ไอคอนเปล่าพอ
+        self.buttonStyle(.borderless).font(.system(size: 13, weight: .medium))
+            .frame(width: 26, height: 26).contentShape(Rectangle())
     }
 
     /// ป้ายเม็ดยา (ชื่อแผน) — กระจกย้อมสี provider แทนพื้นทึบจางๆ
@@ -124,11 +122,16 @@ struct PopoverView: View {
         return false
     }
 
+    private var bentoFits: Bool {
+        model.designStyle == .darkGlass && !model.showSettings && !displayItems.isEmpty
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if model.showSettings { settingsPane } else { mainPane }
         }
-        .frame(width: 380, height: 560)
+        // bento พอดีเนื้อหาไม่ต้องเลื่อน (ผู้ใช้ไม่ชอบ scroll) · แบบอื่นกับหน้าตั้งค่ายังสูงตายตัว
+        .frame(width: 380, height: bentoFits ? nil : 560)
         .background { panelBackground }
         // accent ของสไตล์คุมสีปุ่ม/ลิงก์ทั้งบาน — ไม่งั้นสลับสไตล์แล้ว "ไม่เห็นต่าง"
         .tint(useGlass ? Color.accentColor : model.designStyle.accent)
@@ -205,11 +208,12 @@ struct PopoverView: View {
             .foregroundStyle(.secondary)
             .padding(.horizontal, 14).padding(.vertical, 8)
             .frame(height: 30)
+            if bentoFits {
+                // สไตล์ A = widget แบบ bento: การ์ดใหญ่ตัวที่ใกล้ชน + ช่องเล็ก + ถังที่ไม่มี %
+                BentoView(items: displayItems, prefs: prefs, now: now)
+                    .padding(.horizontal, 12).padding(.bottom, 12)
+            } else {
             ScrollView {
-                if model.designStyle == .darkGlass && !displayItems.isEmpty {
-                    // สไตล์ A = widget แบบ bento: การ์ดใหญ่ตัวที่ใกล้ชน + ช่องเล็ก + ถังที่ไม่มี %
-                    BentoView(items: displayItems, prefs: prefs, now: now).padding(12)
-                } else {
                 VStack(alignment: .leading, spacing: 9) {
                     ForEach(displayItems) { item in row(item) }
                     if displayItems.isEmpty {
@@ -217,9 +221,9 @@ struct PopoverView: View {
                             .frame(maxWidth: .infinity, alignment: .center).padding(.vertical, 40)
                     }
                 }.padding(14)
-                }
             }
-            Divider()
+            }
+            if !bentoFits { Divider() }
             footer
         }
     }

@@ -46,8 +46,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.behavior = .transient
         popover.delegate = self
         popover.contentSize = NSSize(width: 380, height: 560)
-        popover.contentViewController = NSHostingController(
-            rootView: PopoverView(model: model, prefs: model.prefs))
+        let hosting = NSHostingController(rootView: PopoverView(model: model, prefs: model.prefs))
+        // bento ไม่มี scroll — popover ต้องสูงตามเนื้อหาเอง ไม่ใช่กล่อง 560 ตายตัว
+        hosting.sizingOptions = .preferredContentSize
+        popover.contentViewController = hosting
 
         if let script = EngineRunner.bundledScriptURL {
             // อ่านสดทุกรอบ ผู้ใช้สลับสวิตช์แล้วต้องมีผลรอบถัดไป ไม่ต้องปิดเปิดแอป
