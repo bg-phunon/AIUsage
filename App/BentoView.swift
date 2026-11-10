@@ -226,6 +226,12 @@ struct BentoView: View {
                     Text(heroStatus(item, pct: pct, window: window))
                         .font(.system(size: 11.5)).foregroundStyle(.secondary).lineLimit(1)
                 }
+                // การ์ดใหญ่มักเป็นตัวที่ชนอยู่ — ตอนนั้นแหละที่อยากรู้ว่ามีใบรีเซ็ตไหม
+                if let note = resetNote(item) {
+                    Label(note, systemImage: "arrow.counterclockwise.circle")
+                        .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                        .padding(.top, 3)
+                }
             }
             Spacer(minLength: 0)
             ArcGauge(pct: pct, sev: sev, caption: windowName(window?.label))
@@ -233,6 +239,7 @@ struct BentoView: View {
         .padding(.horizontal, 16).padding(.vertical, 12)
         .frame(height: 136)
         .background { tileShape(radius: 22) }
+        .help(limitResetsDetail(item, now: now) ?? "")
         .contextMenu { pinMenu(item) }
     }
 
@@ -273,18 +280,32 @@ struct BentoView: View {
         .background { tileShape(radius: 18) }
         .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .onTapGesture { selected = item.id }
-        .help("กดเพื่อขึ้นการ์ดใหญ่ · คลิกขวาเพื่อปักหมุด")
+        .help(limitResetsDetail(item, now: now).map { $0 + "\n\n" } .map { $0 + "กดเพื่อขึ้นการ์ดใหญ่" }
+              ?? "กดเพื่อขึ้นการ์ดใหญ่ · คลิกขวาเพื่อปักหมุด")
         .contextMenu { pinMenu(item) }
     }
 
     /// บรรทัดท้ายช่อง — ใบรีเซ็ตสำคัญกว่ายอด token เพราะมันคือทางออกตอนชนเพดาน
     private func tileNote(_ item: UsageItem) -> String? {
+        resetNote(item) ?? rowFootnote(item, price: prefs.prices[item.id], now: now)
+    }
+
+    /// ใบรีเซ็ตแบบสั้น + วันหมดอายุใบแรก · ได้คืนเมื่อไหร่ถ้าใช้ไปแล้ว
+    private func resetNote(_ item: UsageItem) -> String? {
         if let resets = item.limitResets {
-            if resets > 0 { return item.limitResetsAtLeast ? "มีใบรีเซ็ต" : "ใบรีเซ็ต \(resets) ใบ" }
+            if resets > 0 {
+                let head = item.limitResetsAtLeast ? "มีใบรีเซ็ต" : "ใบรีเซ็ต \(resets) ใบ"
+                if let first = item.limitResetsExpiring.first(where: { $0 > now }) {
+                    return head + " · หมดใน " + countdownText(to: first, from: now)
+                }
+                return head
+            }
+            if let back = item.limitResetAvailableAt, back > now {
+                return "ใช้ใบรีเซ็ตแล้ว · ได้คืนใน " + countdownText(to: back, from: now)
+            }
             return "ไม่เหลือใบรีเซ็ต"
         }
-        if item.group == "Claude Code" { return "ใบรีเซ็ต · ไม่ทราบ" }
-        return rowFootnote(item, price: prefs.prices[item.id], now: now)
+        return item.group == "Claude Code" ? "ใบรีเซ็ต · ไม่ทราบ" : nil
     }
 
     private var othersTile: some View {
