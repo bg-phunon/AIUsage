@@ -244,6 +244,21 @@ struct SettingsView: View {
                     separator
                     toggleRow("ป้ายบัญชีใต้โลโก้", nil,
                               Binding(get: { prefs.tagBelowLogo }, set: { prefs.setTagBelowLogo($0) }))
+                    separator
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("ถังบนแถบเมนู").font(.system(size: 12.5))
+                            Text(prefs.pinned.isEmpty ? "อัตโนมัติ — ทุกถังที่มีตัวเลข"
+                                                      : "ปักหมุดไว้ \(prefs.pinned.count) · คลิกขวาที่การ์ดเพื่อปัก/ถอด")
+                                .font(.system(size: 10.5)).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if !prefs.pinned.isEmpty {
+                            Button("ล้างหมุด") { prefs.clearPins() }
+                                .buttonStyle(.plain).font(.system(size: 11.5)).foregroundStyle(.tint)
+                        }
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 8)
                 }
             }
             VStack(alignment: .leading, spacing: 0) {

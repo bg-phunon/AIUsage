@@ -192,23 +192,8 @@ struct PopoverView: View {
                 strip(icon: "arrow.clockwise", text: "อัปเดตล่าสุด \(ageText(age)) ที่แล้ว",
                       tint: snapshotState == .dead ? .red : .orange)
             }
-            // สูงคงที่เสมอ — แถบที่โผล่/หายตอนกดหมุดคือสาเหตุที่เนื้อหาเด้งขึ้นลง
-            HStack(spacing: 8) {
-                if prefs.pinned.isEmpty {
-                    Text("แถบเมนู: อัตโนมัติ — ทุกถังที่มีตัวเลข")
-                    Spacer()
-                } else {
-                    Text("แถบเมนู: ปักหมุดไว้ \(prefs.pinned.count)")
-                    Spacer()
-                    Button("ยกเลิกทั้งหมด → อัตโนมัติ") { prefs.clearPins() }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.tint)
-                }
-            }
-            .font(.system(size: 11))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 14).padding(.vertical, 8)
-            .frame(height: 30)
+            // แถบ "ปักหมุดไว้ N · ยกเลิกทั้งหมด" ถูกเอาออกตามที่ผู้ใช้ขอ (2026-11-10) —
+            // ล้างหมุดย้ายไปอยู่ ตั้งค่า → ทั่วไป → แถบเมนู
             if bentoFits {
                 // สไตล์ A = widget แบบ bento: การ์ดใหญ่ตัวที่ใกล้ชน + ช่องเล็ก + ถังที่ไม่มี %
                 BentoView(items: displayItems, prefs: prefs, now: now)
