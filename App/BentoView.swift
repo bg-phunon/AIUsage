@@ -128,7 +128,7 @@ struct MiniMeter: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Text(label).frame(width: 16, alignment: .leading)
+            Text(label).lineLimit(1).minimumScaleFactor(0.8).frame(width: 30, alignment: .leading)
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(Color.primary.opacity(0.10))
@@ -268,12 +268,22 @@ struct BentoView: View {
                 if let note = resetNote(item) {
                     resetButton(item, note: note, size: 11).padding(.top, 3)
                 }
+                // หน้าต่างอื่นนอกจากตัวที่ขึ้นเกจใหญ่ — ไม่งั้นการ์ดใหญ่บอกแค่เลขเดียว
+                let rest = displayableWindows(item).filter { $0.label != window?.label }
+                if !rest.isEmpty {
+                    VStack(spacing: 5) {
+                        ForEach(Array(rest.enumerated()), id: \.element.label) { i, row in
+                            MiniMeter(window: row, label: row.label, delay: 0.1 + 0.04 * Double(i), now: now)
+                        }
+                    }
+                    .padding(.top, 6)
+                }
             }
             Spacer(minLength: 0)
             ArcGauge(pct: pct, sev: sev, caption: windowName(window?.label))
         }
         .padding(.horizontal, 16).padding(.vertical, 12)
-        .frame(height: 136)
+        .frame(minHeight: 136)
         .background { tileShape(radius: 22) }
         .help(limitResetsDetail(item, now: now) ?? "")
         .contextMenu { pinMenu(item) }
@@ -303,15 +313,18 @@ struct BentoView: View {
     // MARK: ช่องเล็ก
 
     @ViewBuilder private func tile(_ item: UsageItem, index: Int) -> some View {
-        let rows = windowRows(item)
+        let rows = displayableWindows(item)
         VStack(alignment: .leading, spacing: 6) {
             titleRow(item, logo: 14, font: 12.5)
             RollingNumber(value: headlinePct(item) ?? 0, size: 26,
                           estimated: headlineWindow(item)?.sure == .estimate)
+            // ทุกหน้าต่างที่มีเลขจริง — รวมเกจของโมเดล (Fable) และรายเดือน (1mo/30d)
+            // เดิมโชว์แค่ 5h/7d ตายตัว เกจที่เหลือหายหมด (ผู้ใช้ทัก 2026-11-10)
             VStack(spacing: 5) {
-                MiniMeter(window: rows.first, label: "5h", delay: 0.08 + 0.05 * Double(index), now: now)
-                MiniMeter(window: rows.dropFirst().first, label: "7d",
-                          delay: 0.12 + 0.05 * Double(index), now: now)
+                ForEach(Array(rows.enumerated()), id: \.element.label) { i, row in
+                    MiniMeter(window: row, label: row.label,
+                              delay: 0.08 + 0.05 * Double(index) + 0.04 * Double(i), now: now)
+                }
             }
             if let note = resetNote(item) {
                 resetButton(item, note: note, size: 10)
