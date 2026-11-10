@@ -153,6 +153,37 @@ struct MiniMeter: View {
     }
 }
 
+/// รายละเอียดใบรีเซ็ตทีละบรรทัด — บอกเท่าที่รู้จริง และบอกตรงๆ เมื่อไม่รู้
+func resetDetailLines(_ item: UsageItem, now: Date) -> [String] {
+    let claude = item.group == "Claude Code"
+    let use = claude ? "ใช้: พิมพ์ /limit-reset ใน Claude Code" : "ใช้: จากใน \(item.displayGroup) ตอนชนลิมิต"
+    guard let count = item.limitResets else {
+        return ["Claude Code ไม่ได้จดสถานะใบรีเซ็ตของบัญชีนี้ไว้",
+                "ดูจำนวนจริง: พิมพ์ /usage ใน Claude Code ของบัญชีนี้"]
+    }
+    if count == 0 {
+        if let back = item.limitResetAvailableAt, back > now {
+            return ["ใช้ไปแล้ว · ได้ใบใหม่ใน \(countdownText(to: back, from: now))"]
+        }
+        return ["ไม่มีใบให้ใช้ตอนนี้"]
+    }
+    var lines: [String] = []
+    let dates = item.limitResetsExpiring.filter { $0 > now }
+    if item.limitResetsAtLeast {
+        lines.append("มีอย่างน้อย 1 ใบ — Claude Code ไม่บอกจำนวนและวันหมดอายุ")
+        lines.append("ดูจำนวนจริง: พิมพ์ /usage ใน Claude Code")
+    } else if dates.isEmpty {
+        lines.append("\(count) ใบ · ไม่ทราบวันหมดอายุ")
+    } else {
+        for (i, date) in dates.prefix(4).enumerated() {
+            lines.append("ใบที่ \(i + 1) · ใช้ได้อีก \(countdownText(to: date, from: now))")
+        }
+        if dates.count > 4 { lines.append("และอีก \(dates.count - 4) ใบ") }
+    }
+    lines.append(use)
+    return lines
+}
+
 /// นับถอยหลังสั้นสุดสำหรับช่องแคบ: 3ช · 4ว · 12น
 func shortCountdown(_ date: Date?, now: Date) -> String {
     guard let date, date > now else { return "—" }
@@ -172,6 +203,8 @@ struct BentoView: View {
     /// true = อยู่ในหน้าต่างใส การ์ดเป็นแผ่น Liquid Glass จริง · false = แผ่นจางบนพื้นบาน
     var glass = false
     @State private var selected: String?
+    /// การ์ดไหนกางรายละเอียดใบรีเซ็ตอยู่ — ทีละใบพอ
+    @State private var detailFor: String?
     @State private var appeared = false
 
     private var hero: UsageItem? { heroItem(items, selected: selected) }
@@ -230,9 +263,7 @@ struct BentoView: View {
                 }
                 // การ์ดใหญ่มักเป็นตัวที่ชนอยู่ — ตอนนั้นแหละที่อยากรู้ว่ามีใบรีเซ็ตไหม
                 if let note = resetNote(item) {
-                    Label(note, systemImage: "arrow.counterclockwise.circle")
-                        .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
-                        .padding(.top, 3)
+                    resetButton(item, note: note, size: 11).padding(.top, 3)
                 }
             }
             Spacer(minLength: 0)
@@ -243,6 +274,12 @@ struct BentoView: View {
         .background { tileShape(radius: 22) }
         .help(limitResetsDetail(item, now: now) ?? "")
         .contextMenu { pinMenu(item) }
+        if detailFor == item.id {
+            resetDetail(item)
+                .padding(.horizontal, 16).padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background { tileShape(radius: 16) }
+        }
     }
 
     private func heroStatus(_ item: UsageItem, pct: Double, window: WindowRow?) -> String {
@@ -273,9 +310,12 @@ struct BentoView: View {
                 MiniMeter(window: rows.dropFirst().first, label: "7d",
                           delay: 0.12 + 0.05 * Double(index), now: now)
             }
-            if let note = tileNote(item) {
+            if let note = resetNote(item) {
+                resetButton(item, note: note, size: 10)
+            } else if let note = rowFootnote(item, price: prefs.prices[item.id], now: now) {
                 Text(note).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
             }
+            if detailFor == item.id { resetDetail(item) }
         }
         .padding(.horizontal, 13).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -287,9 +327,35 @@ struct BentoView: View {
         .contextMenu { pinMenu(item) }
     }
 
-    /// บรรทัดท้ายช่อง — ใบรีเซ็ตสำคัญกว่ายอด token เพราะมันคือทางออกตอนชนเพดาน
-    private func tileNote(_ item: UsageItem) -> String? {
-        resetNote(item) ?? rowFootnote(item, price: prefs.prices[item.id], now: now)
+    /// บรรทัดใบรีเซ็ตที่กดได้ — tooltip พึ่งไม่ได้ในหน้าต่างกระจก (ผู้ใช้ดูรายละเอียดไม่ได้
+    /// 2026-11-10) รายละเอียดจึงกางออกในการ์ดเลย
+    private func resetButton(_ item: UsageItem, note: String, size: CGFloat) -> some View {
+        Button {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+                detailFor = detailFor == item.id ? nil : item.id
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.counterclockwise.circle")
+                Text(note).lineLimit(1)
+                Image(systemName: "chevron.right").font(.system(size: size - 3, weight: .bold))
+                    .rotationEffect(.degrees(detailFor == item.id ? 90 : 0))
+            }
+            .font(.system(size: size)).foregroundStyle(.secondary)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func resetDetail(_ item: UsageItem) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            ForEach(resetDetailLines(item, now: now), id: \.self) { line in
+                Text(line).font(.system(size: 10)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.top, 2)
+        .transition(.opacity)
     }
 
     /// ใบรีเซ็ตแบบสั้น + วันหมดอายุใบแรก · ได้คืนเมื่อไหร่ถ้าใช้ไปแล้ว

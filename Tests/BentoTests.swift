@@ -50,4 +50,21 @@ final class BentoTests: XCTestCase {
         XCTAssertEqual(compactTokens(7_660_000), "7.7M")
         XCTAssertEqual(compactTokens(2_400_000_000), "2.4B")
     }
+
+    func testResetDetailsSayWhatIsKnown() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        var it = item("default")
+        XCTAssertTrue(resetDetailLines(it, now: now)[0].contains("ไม่ได้จดสถานะ"))
+        it.limitResets = 1; it.limitResetsAtLeast = true
+        XCTAssertTrue(resetDetailLines(it, now: now)[0].contains("อย่างน้อย 1 ใบ"))
+        XCTAssertTrue(resetDetailLines(it, now: now).last!.contains("/limit-reset"))
+        var codex = UsageItem(group: "Codex", label: "Codex", window: "5h")
+        codex.limitResets = 2
+        codex.limitResetsExpiring = [now.addingTimeInterval(86_400), now.addingTimeInterval(172_800)]
+        let lines = resetDetailLines(codex, now: now)
+        XCTAssertEqual(lines.count, 3)
+        XCTAssertTrue(lines[0].hasPrefix("ใบที่ 1"))
+        codex.limitResets = 0; codex.limitResetsExpiring = []
+        XCTAssertEqual(resetDetailLines(codex, now: now), ["ไม่มีใบให้ใช้ตอนนี้"])
+    }
 }
