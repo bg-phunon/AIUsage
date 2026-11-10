@@ -38,6 +38,16 @@ final class GlassPanelController {
     private var monitors: [Any] = []
     private var topLeft = NSPoint.zero
     private weak var anchorWindow: NSWindow?
+    private var anchorMidX: CGFloat = 0
+    private var visible: NSRect?
+    private var lastSize: CGSize?
+
+    /// กึ่งกลางใต้ไอคอนแถบเมนู แต่ไม่ล้นขอบจอ
+    private func originX(width: CGFloat) -> CGFloat {
+        let x = anchorMidX - width / 2
+        guard let visible else { return x }
+        return min(max(x, visible.minX + 8), visible.maxX - width - 8)
+    }
 
     var isShown: Bool { panel.isVisible }
 
@@ -73,9 +83,15 @@ final class GlassPanelController {
 
     /// เนื้อหาสูงเปลี่ยน (สลับหน้าตั้งค่า) — ตั้งเฟรมเองโดยตรึงขอบบนไว้ใต้แถบเมนู
     private func resize(to size: CGSize) {
-        guard panel.isVisible, size.width > 1, size.height > 1 else { return }
+        guard size.width > 1, size.height > 1 else { return }
+        lastSize = size
+        guard panel.isVisible else { return }
+        // กว้างเปลี่ยน = จุดกึ่งกลางเลื่อน — คำนวณ x ใหม่ทุกครั้ง ไม่งั้นหน้าต่างขึ้นเยื้องจากไอคอน
+        // (เคสจริง 2026-11-10: ขนาดตอนเปิดครั้งแรกยังไม่ใช่ขนาดจริง)
+        topLeft.x = originX(width: size.width)
         let frame = NSRect(x: topLeft.x, y: topLeft.y - size.height, width: size.width, height: size.height)
-        if abs(panel.frame.height - frame.height) > 0.5 || abs(panel.frame.width - frame.width) > 0.5 {
+        if abs(panel.frame.height - frame.height) > 0.5 || abs(panel.frame.width - frame.width) > 0.5
+            || abs(panel.frame.minX - frame.minX) > 0.5 {
             panel.setFrame(frame, display: true)
         }
     }
@@ -84,14 +100,13 @@ final class GlassPanelController {
         guard let window = button.window else { return }
         anchorWindow = window
         let anchor = window.convertToScreen(button.convert(button.bounds, to: nil))
-        let size = hosting.fittingSize
-        panel.setContentSize(size)
-        var x = anchor.midX - size.width / 2
-        if let visible = (window.screen ?? NSScreen.main)?.visibleFrame {
-            x = min(max(x, visible.minX + 8), visible.maxX - size.width - 8)
-        }
-        topLeft = NSPoint(x: x, y: anchor.minY - 2)
-        panel.setFrameTopLeftPoint(topLeft)
+        anchorMidX = anchor.midX
+        visible = (window.screen ?? NSScreen.main)?.visibleFrame
+        // ขนาดจริงมาจาก onGeometryChange ทีหลัง — ตอนนี้ใช้ขนาดล่าสุดที่รู้ไปก่อน
+        let size = lastSize ?? hosting.fittingSize
+        topLeft = NSPoint(x: originX(width: size.width), y: anchor.minY - 2)
+        panel.setFrame(NSRect(x: topLeft.x, y: topLeft.y - size.height,
+                              width: size.width, height: size.height), display: false)
         panel.alphaValue = 0
         panel.makeKeyAndOrderFront(nil)
         NSAnimationContext.runAnimationGroup { context in
