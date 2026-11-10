@@ -37,6 +37,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: AI Usage
         INFOPLIST_KEY_LSUIElement: YES
+        INFOPLIST_KEY_CFBundleIconFile: AppIcon
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
         COMBINE_HIDPI_IMAGES: YES
     postBuildScripts:
