@@ -116,8 +116,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             if self.model.prefs.notifyNearLimit {
                 self.notifier.notify(items: self.model.snapshot.items)
             }
-            if self.model.prefs.notifyOnUpdate {
-                self.updateNotifier.checkAndNotify()
+            if self.model.prefs.notifyOnUpdate || self.model.prefs.autoInstallUpdate {
+                self.updateNotifier.checkAndNotify(autoInstall: self.model.prefs.autoInstallUpdate)
             }
             self.updateBar()
             if self.pendingFresh {

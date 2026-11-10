@@ -136,6 +136,10 @@ struct SettingsView: View {
                       isOn: Binding(get: { prefs.notifyOnUpdate },
                                     set: { prefs.setNotifyOnUpdate($0)
                                              if $0 { UpdateNotifier().requestPermission() } }))
+            toggleRow(title: "ติดตั้งอัปเดตเอง",
+                      subtitle: "โค้ดนิ่งเกิน 10 นาทีแล้วติดตั้งเลย ไม่ต้องกด · ไอคอนหายไป 1–2 นาที",
+                      isOn: Binding(get: { prefs.autoInstallUpdate },
+                                    set: { prefs.setAutoInstallUpdate($0) }))
             toggleRow(title: "เปิดเองตอนเข้าระบบ",
                       subtitle: "ขึ้นบนแถบเมนูทันทีที่เข้าเครื่อง ไม่ต้องเปิดแอปเอง",
                       isOn: Binding(get: { prefs.launchAtLogin },

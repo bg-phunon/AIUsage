@@ -60,6 +60,7 @@ final class Preferences: ObservableObject {
         static let liveUsage = "liveUsage"
         static let notifyNearLimit = "notifyNearLimit"
         static let notifyOnUpdate = "notifyOnUpdate"
+        static let autoInstallUpdate = "autoInstallUpdate"
     }
 
     private let defaults: UserDefaults
@@ -87,6 +88,9 @@ final class Preferences: ObservableObject {
     /// เด้งแจ้งเตือนชวนติดตั้งเมื่อโค้ดใน repo นิ่งเกิน 10 นาที — เปิดไว้ เพราะคนที่
     /// แก้โค้ดแล้วลืมติดตั้งจะได้ไม่นั่งงงว่าทำไมเมนูบาร์ไม่เปลี่ยน
     @Published private(set) var notifyOnUpdate: Bool
+    /// ติดตั้งเองเมื่อโค้ดนิ่งเกิน 10 นาที ไม่ต้องกดใบแจ้ง — opt-in ปิดไว้เป็นค่าเริ่มต้น
+    /// เพราะไอคอนจะหายไป 1–2 นาทีระหว่าง build ผู้ใช้ต้องเป็นคนเลือกเอง
+    @Published private(set) var autoInstallUpdate: Bool
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -106,6 +110,7 @@ final class Preferences: ObservableObject {
             ? true : defaults.bool(forKey: Key.notifyNearLimit)
         notifyOnUpdate = defaults.object(forKey: Key.notifyOnUpdate) == nil
             ? true : defaults.bool(forKey: Key.notifyOnUpdate)
+        autoInstallUpdate = defaults.bool(forKey: Key.autoInstallUpdate)
     }
 
     func setNotifyNearLimit(_ enabled: Bool) {
@@ -116,6 +121,11 @@ final class Preferences: ObservableObject {
     func setNotifyOnUpdate(_ enabled: Bool) {
         notifyOnUpdate = enabled
         defaults.set(enabled, forKey: Key.notifyOnUpdate)
+    }
+
+    func setAutoInstallUpdate(_ enabled: Bool) {
+        autoInstallUpdate = enabled
+        defaults.set(enabled, forKey: Key.autoInstallUpdate)
     }
 
     func setLiveUsage(_ enabled: Bool) {

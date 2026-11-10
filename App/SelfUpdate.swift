@@ -217,11 +217,16 @@ final class UpdateNotifier: NSObject, UNUserNotificationCenterDelegate {
 
     /// เวลาที่จำไว้อยู่ใน UserDefaults ไม่ใช่หน่วยความจำ — ปิดเปิดแอปแล้วต้องไม่
     /// ยิงใบเดิมซ้ำ
-    func checkAndNotify(now: Date = Date()) {
+    func checkAndNotify(now: Date = Date(), autoInstall: Bool = false) {
         let lastNotified = defaults.object(forKey: Self.lastNotifiedKey) as? Date
         if let since = updateNotifySince(state: currentUpdateState(), now: now,
                                          lastNotifiedAt: lastNotified) {
-            postAvailable(since: since, now: now)
+            // เกณฑ์เดียวกับการชวน (นิ่ง 10 นาที + ห่าง 1 ชม.) — build ล้มก็ไม่วนติดตั้งทุกนาที
+            if autoInstall {
+                NotificationCenter.default.post(name: .aiUsageInstallUpdateDirect, object: nil)
+            } else {
+                postAvailable(since: since, now: now)
+            }
             defaults.set(now, forKey: Self.lastNotifiedKey)
         }
         let lastReported = defaults.object(forKey: Self.lastReportedKey) as? Date

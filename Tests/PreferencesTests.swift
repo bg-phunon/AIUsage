@@ -219,4 +219,12 @@ final class PreferencesTests: XCTestCase {
         XCTAssertEqual(Preferences(defaults: defaults).liveUsage, false,
                        "false ต้องอยู่รอดข้ามการเปิดแอป ไม่ใช่กลายเป็น nil")
     }
+
+    /// ติดตั้งเองต้องเป็น opt-in — ไอคอนหายระหว่าง build ผู้ใช้ต้องเลือกเอง
+    func testAutoInstallIsOffUntilChosen() {
+        let defaults = UserDefaults(suiteName: "auto-install-\(UUID())")!
+        XCTAssertFalse(Preferences(defaults: defaults).autoInstallUpdate)
+        Preferences(defaults: defaults).setAutoInstallUpdate(true)
+        XCTAssertTrue(Preferences(defaults: defaults).autoInstallUpdate)
+    }
 }
