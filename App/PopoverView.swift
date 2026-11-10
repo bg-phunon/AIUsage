@@ -131,7 +131,8 @@ struct PopoverView: View {
             if model.showSettings { settingsPane } else { mainPane }
         }
         // bento พอดีเนื้อหาไม่ต้องเลื่อน (ผู้ใช้ไม่ชอบ scroll) · แบบอื่นกับหน้าตั้งค่ายังสูงตายตัว
-        .frame(width: 380, height: bentoFits ? nil : 560)
+        // หน้าตั้งค่าแยกแท็บแล้วก็สูงตามเนื้อหาเหมือนกัน ไม่มี scroll
+        .frame(width: 380, height: bentoFits || model.showSettings ? nil : 560)
         .background { panelBackground }
         // accent ของสไตล์คุมสีปุ่ม/ลิงก์ทั้งบาน — ไม่งั้นสลับสไตล์แล้ว "ไม่เห็นต่าง"
         .tint(useGlass ? Color.accentColor : model.designStyle.accent)

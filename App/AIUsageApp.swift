@@ -113,8 +113,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             }
             self.model.snapshot = .load()
             self.model.wokeRecently = self.wokeRecently
-            if self.model.prefs.notifyNearLimit {
-                self.notifier.notify(items: self.model.snapshot.items)
+            if self.model.prefs.notifyNearLimit || self.model.prefs.notifyResetExpiry {
+                self.notifier.notify(items: self.model.snapshot.items,
+                                     nearLimit: self.model.prefs.notifyNearLimit,
+                                     resetExpiry: self.model.prefs.notifyResetExpiry)
             }
             if self.model.prefs.notifyOnUpdate || self.model.prefs.autoInstallUpdate {
                 self.updateNotifier.checkAndNotify(autoInstall: self.model.prefs.autoInstallUpdate)

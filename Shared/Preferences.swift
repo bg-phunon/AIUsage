@@ -61,6 +61,7 @@ final class Preferences: ObservableObject {
         static let notifyNearLimit = "notifyNearLimit"
         static let notifyOnUpdate = "notifyOnUpdate"
         static let autoInstallUpdate = "autoInstallUpdate"
+        static let notifyResetExpiry = "notifyResetExpiry"
     }
 
     private let defaults: UserDefaults
@@ -91,6 +92,8 @@ final class Preferences: ObservableObject {
     /// ติดตั้งเองเมื่อโค้ดนิ่งเกิน 10 นาที ไม่ต้องกดใบแจ้ง — opt-in ปิดไว้เป็นค่าเริ่มต้น
     /// เพราะไอคอนจะหายไป 1–2 นาทีระหว่าง build ผู้ใช้ต้องเป็นคนเลือกเอง
     @Published private(set) var autoInstallUpdate: Bool
+    /// เตือนใบรีเซ็ตที่จะหมดอายุใน 24 ชม. แต่ยังไม่ได้ใช้ — เปิดไว้ เพราะไม่ใช้คือหายเปล่า
+    @Published private(set) var notifyResetExpiry: Bool
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -111,6 +114,8 @@ final class Preferences: ObservableObject {
         notifyOnUpdate = defaults.object(forKey: Key.notifyOnUpdate) == nil
             ? true : defaults.bool(forKey: Key.notifyOnUpdate)
         autoInstallUpdate = defaults.bool(forKey: Key.autoInstallUpdate)
+        notifyResetExpiry = defaults.object(forKey: Key.notifyResetExpiry) == nil
+            ? true : defaults.bool(forKey: Key.notifyResetExpiry)
     }
 
     func setNotifyNearLimit(_ enabled: Bool) {
@@ -121,6 +126,11 @@ final class Preferences: ObservableObject {
     func setNotifyOnUpdate(_ enabled: Bool) {
         notifyOnUpdate = enabled
         defaults.set(enabled, forKey: Key.notifyOnUpdate)
+    }
+
+    func setNotifyResetExpiry(_ enabled: Bool) {
+        notifyResetExpiry = enabled
+        defaults.set(enabled, forKey: Key.notifyResetExpiry)
     }
 
     func setAutoInstallUpdate(_ enabled: Bool) {

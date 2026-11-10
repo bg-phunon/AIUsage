@@ -25,12 +25,14 @@ private func alertKey(_ item: UsageItem, _ window: String,
 /// เอนจินรันทุก 60 วินาที ฟังก์ชันนี้จึงถูกเรียกซ้ำด้วยข้อมูลชุดเดิมตลอด กติกากันซ้ำ
 /// คือหัวใจ ไม่ใช่ของแถม
 func pendingLimitAlerts(items: [UsageItem], alreadySent: Set<String>,
-                        now: Date = Date()) -> [LimitAlert] {
+                        now: Date = Date(), nearLimit: Bool = true,
+                        resetExpiry: Bool = true) -> [LimitAlert] {
     var out: [LimitAlert] = []
     for item in items {
-        if let alert = expiringResetAlert(item, now: now), !alreadySent.contains(alert.key) {
+        if resetExpiry, let alert = expiringResetAlert(item, now: now), !alreadySent.contains(alert.key) {
             out.append(alert)
         }
+        guard nearLimit else { continue }
         let windows: [(String, Double?, String?, Date?)] = [
             ("5h", item.pct, item.confidence, item.resetAt),
             ("7d", item.weekPct, item.weekConfidence, item.weekResetAt ?? item.resetAt),
@@ -107,10 +109,11 @@ final class LimitNotifier {
 
     /// คืนใบที่ส่งไป — ผู้เรียกไม่ต้องใช้ แต่เทสต์กับการดีบักอยากรู้
     @discardableResult
-    func notify(items: [UsageItem]) -> [LimitAlert] {
+    func notify(items: [UsageItem], nearLimit: Bool = true, resetExpiry: Bool = true) -> [LimitAlert] {
         // เก็บเป็นลำดับ ไม่ใช่ Set — ตอนตัดของเก่าทิ้งต้องรู้ว่าอันไหนเก่า
         var sent = defaults.stringArray(forKey: Self.key) ?? []
-        let alerts = pendingLimitAlerts(items: items, alreadySent: Set(sent))
+        let alerts = pendingLimitAlerts(items: items, alreadySent: Set(sent),
+                                        nearLimit: nearLimit, resetExpiry: resetExpiry)
         guard !alerts.isEmpty else { return [] }
         for alert in alerts {
             sent.append(alert.key)

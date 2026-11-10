@@ -200,4 +200,12 @@ final class LimitNotifierTests: XCTestCase {
         it.limitResetsExpiring = [now.addingTimeInterval(86400 * 2)]
         XCTAssertTrue(pendingLimitAlerts(items: [it], alreadySent: [], now: now).isEmpty)
     }
+
+    func testExpiryAlertsCanBeTurnedOffSeparately() {
+        let now = reset.addingTimeInterval(-86400 * 3)
+        var it = UsageItem(group: "Codex", label: "Codex", window: "5h")
+        it.limitResets = 1
+        it.limitResetsExpiring = [now.addingTimeInterval(3600)]
+        XCTAssertTrue(pendingLimitAlerts(items: [it], alreadySent: [], now: now, resetExpiry: false).isEmpty)
+    }
 }

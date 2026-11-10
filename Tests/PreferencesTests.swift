@@ -227,4 +227,18 @@ final class PreferencesTests: XCTestCase {
         Preferences(defaults: defaults).setAutoInstallUpdate(true)
         XCTAssertTrue(Preferences(defaults: defaults).autoInstallUpdate)
     }
+
+    func testResetExpiryAlertsAreOnByDefault() {
+        let defaults = UserDefaults(suiteName: "reset-expiry-\(UUID())")!
+        XCTAssertTrue(Preferences(defaults: defaults).notifyResetExpiry)
+        Preferences(defaults: defaults).setNotifyResetExpiry(false)
+        XCTAssertFalse(Preferences(defaults: defaults).notifyResetExpiry)
+    }
+
+    func testDroppingARowMovesItOntoTheTarget() {
+        XCTAssertEqual(reorderedIDs(["a", "b", "c"], moving: "c", onto: "a"), ["c", "a", "b"])
+        XCTAssertEqual(reorderedIDs(["a", "b", "c"], moving: "a", onto: "c"), ["b", "c", "a"])
+        XCTAssertEqual(reorderedIDs(["a", "b"], moving: "a", onto: "a"), ["a", "b"])
+        XCTAssertEqual(reorderedIDs(["a", "b"], moving: "z", onto: "a"), ["a", "b"])
+    }
 }

@@ -22,8 +22,9 @@ setup.sh                     xcodegen + xcodebuild + ติดตั้งลง
 App/AIUsageApp.swift         NSStatusItem และ lifecycle ของ menu bar app
 App/EngineRunner.swift       เรียก engine ทุก 60 วินาที พร้อม timeout/error
 App/MenuBarLabel.swift       ข้อความแถบ menu bar สองบรรทัด
-App/PopoverView.swift        รายละเอียดบัญชีและถังโควตา
-App/SettingsView.swift       ซ่อน/แสดงถัง · ใส่ราคาเอง · สวิตช์ live usage · สวิตช์แจ้งเตือน
+App/PopoverView.swift        รายละเอียดบัญชีและถังโควตา (สไตล์ B/C)
+App/BentoView.swift          สไตล์ A — widget แบบ bento มี motion
+App/SettingsView.swift       3 แท็บ (ถัง/ทั่วไป/แจ้งเตือน) ไม่มี scroll · ลากเรียงถัง · ราคาเองอยู่ในคลิกขวา · สวิตช์ live usage/แจ้งเตือน/อัปเดต
 App/PythonLocator.swift      หา interpreter จริง — /usr/bin/python3 เป็น stub ห้ามเรียก
 App/LimitNotifier.swift      แจ้งเตือน 80%/95% พร้อมกติกากันเด้งซ้ำทุก 60 วินาที
 .github/workflows/           ci.yml รันเทสต์ · release.yml ออกรุ่นจาก tag แล้วอัปเดต cask
