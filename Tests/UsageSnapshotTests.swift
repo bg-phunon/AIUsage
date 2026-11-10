@@ -139,6 +139,14 @@ final class UsageSnapshotTests: XCTestCase {
         XCTAssertNil(limitResetsTitle(UsageItem(group: "Codex", label: "Codex", window: "5h")))
     }
 
+    /// CLI จดแค่ "ถือใบอยู่" ไม่บอกจำนวน — หัวข้อต้องไม่เสกตัวเลขขึ้นมา
+    func testAnAtLeastHintDoesNotInventACount() throws {
+        let json = #"{"generated":"2026-11-10T08:00:00Z","items":[{"group":"Claude Code","label":"default","window":"5 ชม.","tokens":0,"calls":0,"weekTokens":0,"limitResets":1,"limitResetsAtLeast":true}]}"#
+        let snap = try XCTUnwrap(UsageSnapshot.decode(from: Data(json.utf8)))
+        XCTAssertTrue(snap.items[0].limitResetsAtLeast)
+        XCTAssertEqual(limitResetsTitle(snap.items[0]), "มีใบรีเซ็ตลิมิต · ใช้ด้วย /limit-reset")
+    }
+
     /// เหลือศูนย์ใบยังต้องพูด — แปลว่าชนเพดานแล้วไม่มีทางออก
     func testRunningOutIsStillAnnounced() {
         var it = UsageItem(group: "Codex", label: "Codex", window: "5h")

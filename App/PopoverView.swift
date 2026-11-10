@@ -20,6 +20,60 @@ struct VisualEffectBackground: NSViewRepresentable {
     }
 }
 
+/// Liquid Glass ของจริง (macOS 26) — กระจกระดับหน้าต่างที่หักเหสิ่งที่อยู่หลัง popover
+/// SwiftUI `.glassEffect` เห็นแค่ของใน view เดียวกัน พื้นหลังบานจึงต้องเป็น AppKit
+@available(macOS 26.0, *)
+struct GlassPanelBackground: NSViewRepresentable {
+    let cornerRadius: CGFloat
+
+    func makeNSView(context: Context) -> NSGlassEffectView {
+        let view = NSGlassEffectView()
+        view.cornerRadius = cornerRadius
+        // ย้อมมืดบางๆ — กระจกใสสนิทบนวอลเปเปอร์สว่างทำให้ตัวหนังสืออ่านไม่ออก
+        view.tintColor = NSColor(calibratedWhite: 0.05, alpha: 0.35)
+        return view
+    }
+
+    func updateNSView(_ view: NSGlassEffectView, context: Context) {
+        view.cornerRadius = cornerRadius
+    }
+}
+
+/// กลุ่มปุ่มกระจก — ปุ่มที่อยู่ใน container เดียวกันหลอมเป็นก้อนเดียวตอนใกล้กัน
+/// แบบ toolbar ของ macOS 26 · เครื่องเก่าได้ HStack ธรรมดา
+struct GlassCluster<Content: View>: View {
+    let enabled: Bool
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        if #available(macOS 26.0, *), enabled {
+            GlassEffectContainer(spacing: 6) { HStack(spacing: 6) { content } }
+        } else {
+            HStack(spacing: 8) { content }
+        }
+    }
+}
+
+extension View {
+    /// ปุ่มไอคอนบนหัว popover — กระจกเมื่อเปิดสไตล์ Liquid Glass บน macOS 26
+    @ViewBuilder func headerButtonStyle(glass: Bool) -> some View {
+        if #available(macOS 26.0, *), glass {
+            self.buttonStyle(.glass).controlSize(.small)
+        } else {
+            self.buttonStyle(.borderless)
+        }
+    }
+
+    /// ป้ายเม็ดยา (ชื่อแผน) — กระจกย้อมสี provider แทนพื้นทึบจางๆ
+    @ViewBuilder func pillBackground(glass: Bool, tint: Color) -> some View {
+        if #available(macOS 26.0, *), glass {
+            self.glassEffect(.regular.tint(tint.opacity(0.25)), in: Capsule())
+        } else {
+            self.background(tint.opacity(0.10)).clipShape(Capsule())
+        }
+    }
+}
+
 extension Notification.Name {
     static let aiUsageRefreshRequested = Notification.Name("AIUsage.refreshRequested")
     static let aiUsageSettingsChanged = Notification.Name("AIUsage.settingsChanged")
@@ -39,6 +93,9 @@ struct PopoverView: View {
     /// การ์ดไหนกางรายละเอียดใบรีเซ็ตอยู่ — จำแค่ระหว่างเปิด popover ค้างไว้ก็พอ
     /// ไม่ต้องลง UserDefaults เพราะเป็นท่านั่งชั่วคราว ไม่ใช่ความชอบ
     @State private var expandedResets: Set<String> = []
+    /// มีโค้ดใหม่ให้ติดตั้ง — ปุ่มบนหัวโผล่ทันทีไม่ต้องรอไฟล์นิ่ง 10 นาทีแบบใบแจ้งเตือน
+    /// เพราะคนกดเองคือคนตัดสินใจเองแล้ว
+    @State private var updateAvailable = false
     // ทุก 20 วิพอ — นับถอยหลังละเอียดระดับนาทีอยู่แล้ว
     // การวาดใหม่ทุกวินาทีทำให้พื้นที่ tooltip ถูกลงทะเบียนใหม่ตลอด
     // hover ค้างอยู่ระหว่างนั้น tooltip จะไปโผล่ผิดที่
@@ -78,6 +135,13 @@ struct PopoverView: View {
             .allSatisfy { $0.costKind == "notional" && prefs.prices[$0.id] == nil }
     }
 
+    /// Liquid Glass ของจริงใช้ได้เฉพาะ macOS 26 — เครื่องเก่าได้กระจกจำลองแบบเดิม
+    private var useGlass: Bool {
+        guard model.designStyle == .darkGlass else { return false }
+        if #available(macOS 26.0, *) { return true }
+        return false
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if model.showSettings { settingsPane } else { mainPane }
@@ -89,12 +153,21 @@ struct PopoverView: View {
         .preferredColorScheme(model.designStyle == .native ? nil : .dark)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.white.opacity(model.designStyle == .colorful ? 0.16 : 0.09), lineWidth: 1)
+            // กระจกจริงวาดขอบแสงของมันเอง เส้นของเราซ้อนแล้วดูหนา
+            if !useGlass {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color.white.opacity(model.designStyle == .colorful ? 0.16 : 0.09), lineWidth: 1)
+            }
         }
         .onReceive(tick) { now = $0 }
-        .onAppear { now = Date() }   // เปิด popover แล้วเวลาต้องสดทันที ไม่รอ tick แรก
-        .onReceive(model.$snapshot) { _ in now = Date() }   // รีเฟรชสำเร็จ = อายุกลับเป็นศูนย์ให้เห็น
+        .onAppear {
+            now = Date()   // เปิด popover แล้วเวลาต้องสดทันที ไม่รอ tick แรก
+            updateAvailable = currentUpdateState().isActionable
+        }
+        .onReceive(model.$snapshot) { _ in
+            now = Date()   // รีเฟรชสำเร็จ = อายุกลับเป็นศูนย์ให้เห็น
+            updateAvailable = currentUpdateState().isActionable
+        }
     }
 
 
@@ -174,15 +247,27 @@ struct PopoverView: View {
                 Text("โควตาตามบัญชีและ provider").font(.system(size: 10)).foregroundStyle(.primary.opacity(0.55))
             }
             Spacer()
-            Button { refreshEngine() } label: {
-                Image(systemName: "arrow.clockwise")
-            }.buttonStyle(.borderless).help("รีเฟรชเดี๋ยวนี้")
-            Button { model.showSettings = true } label: {
-                Image(systemName: "gearshape")
-            }.buttonStyle(.borderless).help("ตั้งค่า")
-            Button { NSApplication.shared.terminate(nil) } label: {
-                Image(systemName: "power")
-            }.buttonStyle(.borderless).help("ออกจากแอป")
+            GlassCluster(enabled: useGlass) {
+                if updateAvailable {
+                    // ผ่านทางเดียวกับปุ่มในหน้าตั้งค่า — ถามยืนยันก่อน เพราะแอปจะหายไป 1–2 นาที
+                    Button {
+                        NotificationCenter.default.post(name: .aiUsageInstallUpdate, object: nil)
+                    } label: {
+                        Image(systemName: "arrow.down.circle.fill").foregroundStyle(.tint)
+                    }
+                    .headerButtonStyle(glass: useGlass)
+                    .help("มีโค้ดใหม่ — กดเพื่อติดตั้งอัปเดต")
+                }
+                Button { refreshEngine() } label: {
+                    Image(systemName: "arrow.clockwise")
+                }.headerButtonStyle(glass: useGlass).help("รีเฟรชเดี๋ยวนี้")
+                Button { model.showSettings = true } label: {
+                    Image(systemName: "gearshape")
+                }.headerButtonStyle(glass: useGlass).help("ตั้งค่า")
+                Button { NSApplication.shared.terminate(nil) } label: {
+                    Image(systemName: "power")
+                }.headerButtonStyle(glass: useGlass).help("ออกจากแอป")
+            }
         }
         .padding(.horizontal, 14).padding(.vertical, 12)
         .background(chromeFill)
@@ -192,6 +277,8 @@ struct PopoverView: View {
         switch model.designStyle {
         // ทุกแบบต้องมีชั้นทึบรองเสมอ — vibrancy อย่างเดียวปล่อยให้วอลเปเปอร์
         // ทะลุขึ้นมาจนตัวหนังสืออ่านไม่ออก ความอ่านออกมาก่อนความสวย
+        case .darkGlass where useGlass:
+            if #available(macOS 26.0, *) { GlassPanelBackground(cornerRadius: 18) }
         case .darkGlass:
             // hudWindow blur แรงกว่า popover — ชั้นทึบจึงบางลงได้โดยตัวหนังสือยังอ่านออก
             // (บทเรียนเดิมคือ "ห้ามใสสนิท" ไม่ใช่ "ต้องทึบ 90%")
@@ -240,7 +327,7 @@ struct PopoverView: View {
 
     private var chromeFill: Color {
         switch model.designStyle {
-        case .darkGlass: return Color.white.opacity(0.02)
+        case .darkGlass: return useGlass ? .clear : Color.white.opacity(0.02)
         case .native: return Color.primary.opacity(0.035)
         case .colorful: return Color.black.opacity(0.14)
         }
@@ -311,7 +398,7 @@ struct PopoverView: View {
                     }
                     if let plan = item.plan { Text(plan).font(.system(size: 9, weight: .medium))
                         .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(providerColor(item.group).opacity(0.10)).clipShape(Capsule()) }
+                        .pillBackground(glass: useGlass, tint: providerColor(item.group)) }
                     Spacer()
                     if item.error != nil {
                         Text("พัง").font(.system(size: 10, weight: .semibold)).foregroundStyle(.red)
@@ -387,7 +474,7 @@ struct PopoverView: View {
                     if let plan = item.plan {
                         Text(plan).font(.system(size: 9, weight: .medium))
                             .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(providerColor(item.group).opacity(0.10)).clipShape(Capsule())
+                            .pillBackground(glass: useGlass, tint: providerColor(item.group))
                     }
                     // สัญญาณเดียวกับการ์ดเต็ม — ผู้ใช้ยังเห็นว่าทำไมไม่มีเลข
                     if let age = staleQuotaAge(item) {
@@ -638,6 +725,8 @@ func limitResetRows(_ item: UsageItem, limit: Int = 4) -> [ResetRow] {
 /// 23 วัน" แทนที่จะเป็น "ใบนี้ใช้ได้อีก 23 วัน" — คนละเรื่องกันคนละทาง
 func limitResetsTitle(_ item: UsageItem, now: Date = Date()) -> String? {
     guard let count = item.limitResets else { return nil }
+    // CLI จดไว้แค่ว่ามีอย่างน้อยหนึ่งใบ — เขียน "1 ใบ" คือการเดาจำนวน
+    if count > 0 && item.limitResetsAtLeast { return "มีใบรีเซ็ตลิมิต · ใช้ด้วย /limit-reset" }
     if count > 0 { return "ใบรีเซ็ตลิมิต \(count) ใบ" }
     // ของ Claude เป็นใบต่อสัปดาห์ ใช้แล้วรอรอบหน้า — "ไม่เหลือ" เฉยๆ อ่านเหมือน
     // หมดแล้วหมดเลย ทั้งที่สิ่งที่คนอยากรู้คือได้คืนเมื่อไหร่

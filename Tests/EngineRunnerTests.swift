@@ -93,4 +93,10 @@ final class EngineRunnerTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(engineTimeout, 150,
             "เอนจินเคยใช้ถึง 106 วิ — เพดานต่ำกว่านี้คือกลับไปค้างแบบเดิม")
     }
+
+    func testFreshAsksTheEngineToSkipLiveCaches() {
+        XCTAssertEqual(EngineRunner.arguments(script: "/tmp/x.py", liveUsage: true, fresh: true),
+                       ["/tmp/x.py", "--snapshot", "--live-usage=1", "--fresh"])
+        XCTAssertFalse(EngineRunner.arguments(script: "/tmp/x.py", liveUsage: true).contains("--fresh"))
+    }
 }

@@ -1012,7 +1012,7 @@ CONTRACT_DEFAULTS = {
     # ต่างจาก 0.0 ที่แปลว่า "มีแนวคิดนี้แต่หมดแล้ว"
     "credits": None, "creditsUnlimited": False,
     # ใบรีเซ็ตลิมิตที่ยังไม่หมดอายุ · None = ถังนี้ไม่มีแนวคิดนี้
-    "limitResets": None, "limitResetExpiresAt": None, "limitResetsExpiring": [],
+    "limitResets": None, "limitResetsAtLeast": False, "limitResetExpiresAt": None, "limitResetsExpiring": [],
     # ใบที่ใช้ไปแล้วได้คืนเมื่อไหร่ — ของ Claude เป็นใบต่อสัปดาห์ ไม่ใช่ใบมีวันหมดอายุ
     "limitResetAvailableAt": None,
 }
@@ -1541,6 +1541,20 @@ def claude_config_resets(raw, label, now):
             "nextAvailableAt": None}
 
 
+def pick_claude_resets(server, hint, manual):
+    """เลือกแหล่งใบรีเซ็ตลิมิตของ Claude
+
+    server ชนะเสมอ (นับจริงทีละใบ) · ไฟล์ของ CLI (`unusedLimitResetStatusCache`)
+    รู้แค่ "มีอย่างน้อยหนึ่งใบ" จดมือจึงชนะเฉพาะตอนบอกจำนวนได้ (> 0)
+    — จดมือที่เลย useBy แล้วกลายเป็น 0 ต้องแพ้ CLI ที่เพิ่งยืนยันว่ายังถือใบอยู่
+    """
+    if server is not None:
+        return server
+    if manual is not None and manual["count"] > 0:
+        return manual
+    return hint or manual
+
+
 def live_codex_resets(resets, now):
     """เฉพาะใบที่ยังใช้ได้ — ใบที่เลยเวลาแล้วหายไปเอง ไม่ต้องรอใครมาลบ"""
     return [x for x in (resets or []) if x > now]
@@ -1727,6 +1741,7 @@ def estimate_muse_pct(anchor_points, series, now, current_mult=1):
 # ใช้ auth ของมันเอง เอนจินไม่แตะ credential ใดๆ · ห้ามส่ง account/rateLimitResetCredit/
 # consume เด็ดขาด — นั่นคือการเผาใบรีเซ็ตของผู้ใช้ทิ้ง
 CODEX_LIVE_TTL = 120
+_codex_forced = False
 CODEX_BIN_CANDIDATES = ("/opt/homebrew/bin/codex", "/usr/local/bin/codex")
 CODEX_LIVE_PATH = os.path.join(os.path.dirname(SNAPSHOT_PATH), "codex-live.json")
 
@@ -1800,9 +1815,16 @@ def codex_live(fetch=fetch_codex_rate_limits, path=None, clock=time.time):
     ถามไม่สำเร็จคืน cache เก่า (อายุติดไปใน fetchedAt เลขในล็อกที่ใหม่กว่าจึงยังชนะได้)
     """
     path = path or CODEX_LIVE_PATH
+    global _codex_forced
     cached = read_json(path, None)
     if isinstance(cached, dict) and clock() - cached.get("fetchedAt", 0) < CODEX_LIVE_TTL:
-        return cached
+        # ปุ่มรีเฟรช: ของที่ได้มาก่อนกดถือว่าเก่า — แต่ถามใหม่แค่ครั้งเดียวต่อรอบ
+        # ถามไม่สำเร็จแล้วไม่วนถามซ้ำทุกจุดที่เรียก (ครั้งละ timeout 12 วิ)
+        forced = _clilive.FRESH_SINCE is not None and not _codex_forced
+        if not (forced and cached.get("fetchedAt", 0) < _clilive.FRESH_SINCE):
+            return cached
+    if _clilive.FRESH_SINCE is not None:
+        _codex_forced = True
     result = fetch()
     if result is None:
         return cached if isinstance(cached, dict) else None
@@ -1973,9 +1995,10 @@ def collect(live_override=None):
             if uf["resetAt"] is not None:
                 reset_at = uf["resetAt"]
 
-        resets = st.get("limitResets")
-        if resets is None:
-            resets = claude_config_resets(cfg.get("claudeLimitResets"), acc["label"], now)
+        resets = pick_claude_resets(
+            st.get("limitResets"),
+            _util.read_unused_reset_hint(acc["dir"], now),
+            claude_config_resets(cfg.get("claudeLimitResets"), acc["label"], now))
         items.append(with_contract({
             "group": "Claude Code", "label": acc["label"], "window": "5 ชม.",
             "pct": round(pct, 1) if pct is not None else None,
@@ -2002,6 +2025,8 @@ def collect(live_override=None):
             "costKind": "notional" if (st.get("plan") and st.get("costKnown")) else None,
             # ใบรีเซ็ตลิมิต — server ก่อน แล้วค่อยค่าที่จดมือใน claudeLimitResets
             "limitResets": resets["count"] if resets else None,
+            # True = CLI บอกแค่ว่ามีอย่างน้อยหนึ่งใบ ไม่รู้จำนวนจริง
+            "limitResetsAtLeast": bool(resets and resets.get("atLeast")),
             "limitResetExpiresAt": (resets["expiring"][0].isoformat().replace("+00:00", "Z")
                                     if resets and resets["expiring"] else None),
             "limitResetsExpiring": [x.isoformat().replace("+00:00", "Z")
@@ -2210,8 +2235,22 @@ def action(text, args, indent="--"):
           % (indent, clean(text), SELF, params))
 
 
+def split_fresh_flag(argv):
+    """แยก --fresh ออกจาก argv — แอปส่งมาตอนผู้ใช้กดรีเฟรชเอง
+
+    ข้ามแคช % ของ Claude (3 นาที) และ Codex (2 นาที) ถามใหม่ทันที ไม่เสียโควตา
+    เพราะทั้งคู่ไม่เรียกโมเดล · Muse ไม่เข้าข่าย: ทุกครั้งที่ถาม TUI มันเขียน
+    auth.json ของผู้ใช้ใหม่ จึงต้องห่างตามกติกาเดิม
+    """
+    rest = [a for a in argv if a != "--fresh"]
+    return rest, len(rest) != len(argv)
+
+
 def main():
-    argv, live_override = split_live_usage_flag(sys.argv[1:])
+    argv, fresh = split_fresh_flag(sys.argv[1:])
+    if fresh:
+        _clilive.FRESH_SINCE = time.time()
+    argv, live_override = split_live_usage_flag(argv)
     if argv and argv[0] == "--snapshot":
         target = argv[1] if len(argv) > 1 else None
         data = write_snapshot(target, live_override)

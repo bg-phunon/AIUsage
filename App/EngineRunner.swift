@@ -44,9 +44,11 @@ final class EngineRunner {
     ///
     /// ไม่มีความเห็น = ไม่ส่ง flag แล้วปล่อยให้ config.json ตัดสิน ซึ่งเป็นทางเดียว
     /// ที่เครื่องซึ่งใช้ live มาก่อนจะไม่ถูกปิดทิ้งเงียบๆ ตอนอัปเดต
-    static func arguments(script: String, liveUsage: Bool?) -> [String] {
+    static func arguments(script: String, liveUsage: Bool?, fresh: Bool = false) -> [String] {
         var args = [script, "--snapshot"]
         if let liveUsage { args.append("--live-usage=\(liveUsage ? 1 : 0)") }
+        // กดรีเฟรชเอง = อยากได้ % ใหม่เดี๋ยวนี้ ข้ามแคชของ Claude/Codex
+        if fresh { args.append("--fresh") }
         return args
     }
 
@@ -67,7 +69,7 @@ final class EngineRunner {
         Bundle.main.url(forResource: "ai-usage.60s", withExtension: "py")
     }
 
-    func run(completion: @escaping (Result<Void, EngineError>) -> Void) {
+    func run(fresh: Bool = false, completion: @escaping (Result<Void, EngineError>) -> Void) {
         lock.lock()
         if running {
             lock.unlock()
@@ -79,7 +81,7 @@ final class EngineRunner {
 
         queue.async { [weak self] in
             guard let self else { return }
-            let result = self.execute()
+            let result = self.execute(fresh: fresh)
             self.lock.lock()
             self.running = false
             self.lastError = if case .failure(let error) = result { Self.describe(error) } else { nil }
@@ -88,11 +90,12 @@ final class EngineRunner {
         }
     }
 
-    private func execute() -> Result<Void, EngineError> {
+    private func execute(fresh: Bool) -> Result<Void, EngineError> {
         guard let interpreter = resolvedPython() else { return .failure(.pythonMissing) }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: interpreter)
-        process.arguments = Self.arguments(script: scriptURL.path, liveUsage: liveUsage())
+        process.arguments = Self.arguments(script: scriptURL.path, liveUsage: liveUsage(),
+                                           fresh: fresh)
         process.environment = Self.environment()
         let errorPipe = Pipe()
         process.standardError = errorPipe

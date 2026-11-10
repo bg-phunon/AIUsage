@@ -20,6 +20,15 @@ from typing import Optional
 from .utilization import Utilization, windows_from_limits
 
 TTL = 180
+# ปุ่มรีเฟรชของแอป (`--fresh`) — คำตอบที่ถามก่อนเวลานี้ถือว่าเก่า ถามใหม่ทันที
+# เทียบกับเวลาเริ่มรอบ ไม่ใช่ตั้ง TTL = 0 เพราะ warm() ถามไปแล้ว live() ในรอบเดียวกัน
+# ต้องเห็นว่าสด ไม่สปอว์นซ้ำ
+FRESH_SINCE: Optional[float] = None
+
+
+def _recent(stamp, now: float) -> bool:
+    stamp = stamp or 0
+    return now - stamp < TTL and (FRESH_SINCE is None or stamp >= FRESH_SINCE)
 # สปอว์น CLI หนึ่งครั้งกิน 0.4–1.3 วิ (วัดจริง 4 บัญชี) แพงกว่ายิง HTTP มาก
 # เอนจินเดินทุก 60 วิ จึงต้องมีแคชคั่น ไม่งั้นสี่บัญชีกินเวลาไปครึ่งรอบ
 CACHE_PATH = os.path.join(os.path.expanduser("~"), "Library", "Application Support",
@@ -113,17 +122,22 @@ def reset_state(rate_limits) -> Optional[dict]:
         return None
     cedar = rate_limits.get("cedar_ember")
     if isinstance(cedar, dict) and cedar.get("eligible"):
-        grants = [g for g in (cedar.get("grants") or []) if isinstance(g, dict)]
-        count = 0
-        for grant in grants:
+        # ใบที่ paused หรือใช้หมดแล้วไม่นับ — ตรงกับที่ CLI 2.1.322 ตัดสินว่า "ถือใบอยู่"
+        count, expiring = 0, []
+        for grant in (g for g in (cedar.get("grants") or []) if isinstance(g, dict)):
             try:
-                count += max(0, int(grant.get("resets_left") or 0))
+                left = max(0, int(grant.get("resets_left") or 0))
             except (TypeError, ValueError):
                 continue
-        expiring = sorted(t for t in (_ts(g.get("ends_at")) for g in grants)
-                          if t is not None)
-        return {"count": count, "expiring": expiring,
-                "nextAvailableAt": _ts(cedar.get("weekly_resets_at"))}
+            if left == 0 or grant.get("paused") is True:
+                continue
+            count += left
+            ends = _ts(grant.get("ends_at"))
+            if ends is not None:
+                expiring.append(ends)
+        return {"count": count, "expiring": sorted(expiring),
+                "nextAvailableAt": _ts(cedar.get("cooldown_until")
+                                       or cedar.get("weekly_resets_at"))}
     juniper = rate_limits.get("juniper_tide")
     if isinstance(juniper, dict) and juniper.get("eligible"):
         available = bool(juniper.get("available"))
@@ -255,7 +269,7 @@ def warm(config_dirs, fetch=None, path: Optional[str] = None,
     fetch = fetch or fetch_from_cli
     store = _read_store(path)
     stale = [d for d in config_dirs
-             if clock() - ((store.get(d) or {}).get("triedAt") or 0) >= TTL]
+             if not _recent((store.get(d) or {}).get("triedAt"), clock())]
     if not stale:
         return store
     with ThreadPoolExecutor(max_workers=max(1, min(workers, len(stale)))) as pool:
@@ -281,7 +295,7 @@ def live(config_dir: str, fetch=None, path: Optional[str] = None,
     # นับจาก "ครั้งล่าสุดที่ถาม" ไม่ใช่ "ครั้งล่าสุดที่ได้คำตอบ" — บัญชีที่ยังไม่ได้
     # ล็อกอินตอบว่างเสมอ ถ้าจำแต่ครั้งที่สำเร็จมันจะถูกสปอว์นใหม่ทุกรอบ 60 วินาที
     # ครั้งละ 3-4 วินาที ตลอดไป
-    if clock() - (entry.get("triedAt") or 0) < TTL:
+    if _recent(entry.get("triedAt"), clock()):
         return entry if entry.get("result") is not None else None
     entry = _stamp(entry, fetch(config_dir), clock())
     store[config_dir] = entry

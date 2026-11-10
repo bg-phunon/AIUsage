@@ -87,16 +87,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     @objc private func didWake() { lastWake = Date(); refresh() }
-    @objc private func refreshRequested() { refresh() }
+    @objc private func refreshRequested() { refresh(fresh: true) }
+    /// กดรีเฟรชระหว่างรอบ 60 วิกำลังวิ่ง — รอบนั้นใช้แคชเดิม จึงต้องวิ่งซ้ำแบบสดหลังจบ
+    private var pendingFresh = false
     @objc private func settingsChanged() { updateBar() }
 
     private var wokeRecently: Bool { Date().timeIntervalSince(lastWake) < wakeGrace }
 
-    private func refresh() {
-        runner?.run { [weak self] result in
+    private func refresh(fresh: Bool = false) {
+        runner?.run(fresh: fresh) { [weak self] result in
             guard let self else { return }
             if case .failure(let error) = result {
                 if case .alreadyRunning = error {
+                    if fresh { self.pendingFresh = true }
                     // มีรอบวิ่งอยู่แล้ว — ไม่ใช่ error และดิสก์อาจมีของใหม่กว่าที่จอถือ
                     self.model.snapshot = .load()
                     self.updateBar()
@@ -115,6 +118,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 self.updateNotifier.checkAndNotify()
             }
             self.updateBar()
+            if self.pendingFresh {
+                self.pendingFresh = false
+                self.refresh(fresh: true)
+            }
         }
         updateBar()
     }

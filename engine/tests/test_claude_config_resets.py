@@ -77,5 +77,33 @@ class KeyingTest(unittest.TestCase):
         self.assertIsNone(s["nextAvailableAt"])
 
 
+class PickSourceTest(unittest.TestCase):
+    """server > ไฟล์ของ CLI (มีอย่างน้อยหนึ่งใบ) > จดมือ — จดมือชนะไฟล์เฉพาะตอนบอกจำนวนได้"""
+
+    HINT = {"count": 1, "atLeast": True, "expiring": [], "nextAvailableAt": None}
+
+    def manual(self, count, days=5):
+        return {"count": count, "expiring": [NOW + timedelta(days=days)] * count,
+                "nextAvailableAt": None}
+
+    def test_server_always_wins(self):
+        server = {"count": 0, "expiring": [], "nextAvailableAt": None}
+        self.assertIs(engine.pick_claude_resets(server, self.HINT, self.manual(2)), server)
+
+    def test_manual_count_beats_a_bare_hint(self):
+        m = self.manual(2)
+        self.assertIs(engine.pick_claude_resets(None, self.HINT, m), m)
+
+    def test_hint_beats_a_stale_manual_zero(self):
+        # เคสจริง 2026-11-10: useBy ที่จดไว้เลยแล้ว (0 ใบ) แต่ CLI เพิ่งยืนยันว่ายังถือใบอยู่
+        zero = {"count": 0, "expiring": [], "nextAvailableAt": None}
+        self.assertIs(engine.pick_claude_resets(None, self.HINT, zero), self.HINT)
+
+    def test_nothing_known(self):
+        self.assertIsNone(engine.pick_claude_resets(None, None, None))
+        m = self.manual(0)
+        self.assertIs(engine.pick_claude_resets(None, None, m), m)
+
+
 if __name__ == "__main__":
     unittest.main()

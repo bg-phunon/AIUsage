@@ -184,6 +184,23 @@ class ResetsTest(unittest.TestCase):
                          [datetime(2026, 10, 2, 10, 0, tzinfo=timezone.utc),
                           datetime(2026, 10, 4, 22, 41, 14, tzinfo=timezone.utc)])
 
+    def test_paused_and_spent_grants_are_not_usable(self):
+        # CLI 2.1.322 นับ "ถือใบที่ยังไม่ได้ใช้" เฉพาะ resets_left > 0 และไม่ paused
+        rl = {"cedar_ember": {"eligible": True, "grants": [
+            {"id": "g1", "resets_left": 1, "ends_at": "2026-10-04T00:00:00+00:00"},
+            {"id": "g2", "resets_left": 2, "paused": True,
+             "ends_at": "2026-10-03T00:00:00+00:00"},
+            {"id": "g3", "resets_left": 0, "ends_at": "2026-10-02T00:00:00+00:00"}]}}
+        state = clilive.reset_state(rl)
+        self.assertEqual(state["count"], 1)
+        self.assertEqual(state["expiring"], [datetime(2026, 10, 4, tzinfo=timezone.utc)])
+
+    def test_cooldown_tells_when_the_next_one_can_be_used(self):
+        rl = {"cedar_ember": {"eligible": True, "grants": [],
+                              "cooldown_until": "2026-10-05T00:00:00+00:00"}}
+        self.assertEqual(clilive.reset_state(rl)["nextAvailableAt"],
+                         datetime(2026, 10, 5, tzinfo=timezone.utc))
+
     def test_an_eligible_client_with_no_grants_left_is_a_real_zero(self):
         rl = {"cedar_ember": {"eligible": True, "grants": [], "at_limit": False}}
         self.assertEqual(clilive.reset_state(rl)["count"], 0)

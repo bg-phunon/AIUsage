@@ -151,4 +151,53 @@ final class LimitNotifierTests: XCTestCase {
         XCTAssertEqual(defaults.stringArray(forKey: "sentLimitAlerts")?.count, 2,
                        "ของรอบก่อนต้องไม่หายตอนรอบใหม่เขียนทับ")
     }
+
+    // MARK: - ใบรีเซ็ต
+
+    func testNinetyFiveSuggestsTheResetWhenOneIsHeld() {
+        var it = item("default", pct: 96, resetAt: reset)
+        it.limitResets = 1
+        it.limitResetsAtLeast = true
+        let alerts = pendingLimitAlerts(items: [it], alreadySent: [], now: reset.addingTimeInterval(-3600))
+        XCTAssertTrue(alerts[0].body.contains("/limit-reset"))
+    }
+
+    func testNoSuggestionWithoutAReset() {
+        var it = item("default", pct: 96, resetAt: reset)
+        it.limitResets = 0
+        XCTAssertFalse(pendingLimitAlerts(items: [it], alreadySent: [])[0].body.contains("รีเซ็ต"))
+    }
+
+    func testNoSuggestionAtEighty() {
+        var it = item("default", pct: 85, resetAt: reset)
+        it.limitResets = 2
+        XCTAssertFalse(pendingLimitAlerts(items: [it], alreadySent: [])[0].body.contains("รีเซ็ต"))
+    }
+
+    /// ใบของ Claude ไปกินรายสัปดาห์ — รายสัปดาห์ก็จะเต็มแล้ว ใช้ไปก็ไม่ช่วย
+    func testNoSuggestionWhenTheWeekIsAlsoNearlyFull() {
+        var it = item("default", pct: 96, weekPct: 97, resetAt: reset, weekResetAt: reset)
+        it.limitResets = 1
+        let alerts = pendingLimitAlerts(items: [it], alreadySent: [])
+        XCTAssertTrue(alerts.allSatisfy { !$0.body.contains("/limit-reset") })
+    }
+
+    func testAResetExpiringWithinADayIsAnnouncedOnce() {
+        let now = reset.addingTimeInterval(-86400 * 3)
+        var it = UsageItem(group: "Codex", label: "Codex", window: "5h")
+        it.limitResets = 2
+        it.limitResetsExpiring = [now.addingTimeInterval(3600 * 5), now.addingTimeInterval(86400 * 9)]
+        let alerts = pendingLimitAlerts(items: [it], alreadySent: [], now: now)
+        XCTAssertEqual(alerts.count, 1)
+        XCTAssertEqual(alerts[0].title, "ใบรีเซ็ตลิมิตใกล้หมดอายุ")
+        XCTAssertTrue(pendingLimitAlerts(items: [it], alreadySent: [alerts[0].key], now: now).isEmpty)
+    }
+
+    func testAResetFarFromExpiryIsQuiet() {
+        let now = reset
+        var it = UsageItem(group: "Codex", label: "Codex", window: "5h")
+        it.limitResets = 1
+        it.limitResetsExpiring = [now.addingTimeInterval(86400 * 2)]
+        XCTAssertTrue(pendingLimitAlerts(items: [it], alreadySent: [], now: now).isEmpty)
+    }
 }

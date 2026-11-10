@@ -90,6 +90,43 @@ def read_utilization(config_dir: str) -> Optional[Utilization]:
     return None
 
 
+def _ms(raw) -> Optional[datetime]:
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return None
+    return datetime.fromtimestamp(raw / 1000, timezone.utc)
+
+
+def read_unused_reset_hint(config_dir: str, now: datetime) -> Optional[dict]:
+    """ใบรีเซ็ตลิมิตจาก `unusedLimitResetStatusCache` ที่ CLI (≥ 2.1.322) จดไว้เอง
+
+    CLI ถาม server ด้วย `?cedar_ember=1` แล้วจด {accountUuid, holdsUnusedReset,
+    checkedAt, validUntil} · validUntil = min(checkedAt + 3 วัน, วันหมดอายุของใบ)
+    จึงรู้แค่ "มีอย่างน้อยหนึ่งใบ" ไม่รู้จำนวน ไม่รู้วันหมดอายุจริง
+    `false` ห้ามอ่านเป็นศูนย์ — CLI เขียน false ทั้งตอนไม่เหลือใบและตอน eligible false
+    คืนรูปเดียวกับ clilive.reset_state พร้อม `atLeast: True`
+    """
+    for path in _config_paths(config_dir):
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        cache = data.get("unusedLimitResetStatusCache")
+        account = (data.get("oauthAccount") or {}).get("accountUuid")
+        if not isinstance(cache, dict) or not account:
+            continue
+        # สลับบัญชีใน config dir เดิม — แคชของบัญชีก่อนไม่ใช่ของเรา (CLI ก็เช็กแบบนี้)
+        if cache.get("accountUuid") != account or cache.get("holdsUnusedReset") is not True:
+            return None
+        checked, valid = _ms(cache.get("checkedAt")), _ms(cache.get("validUntil"))
+        if checked is None or valid is None or checked > now or valid <= now:
+            return None
+        return {"count": 1, "atLeast": True, "expiring": [], "nextAvailableAt": None}
+    return None
+
+
 def window_confidence(window: Window, fetched_at: datetime,
                       last_activity: Optional[datetime],
                       now: datetime) -> str:
