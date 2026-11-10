@@ -180,6 +180,9 @@ func resetDetailLines(_ item: UsageItem, now: Date) -> [String] {
         }
         if dates.count > 4 { lines.append("และอีก \(dates.count - 4) ใบ") }
     }
+    if let kind = item.limitResetKind {
+        lines.append("ใบชนิด \(kind) — คืนเฉพาะโควตาของ \(kind) ไม่ได้รีเซ็ตทั้งสัปดาห์")
+    }
     lines.append(use)
     return lines
 }
@@ -362,7 +365,8 @@ struct BentoView: View {
     private func resetNote(_ item: UsageItem) -> String? {
         if let resets = item.limitResets {
             if resets > 0 {
-                let head = item.limitResetsAtLeast ? "มีใบรีเซ็ต" : "ใบรีเซ็ต \(resets) ใบ"
+                let kind = item.limitResetKind.map { " \($0)" } ?? ""
+                let head = item.limitResetsAtLeast ? "มีใบรีเซ็ต" : "ใบรีเซ็ต\(kind) \(resets) ใบ"
                 if let first = item.limitResetsExpiring.first(where: { $0 > now }) {
                     return head + " · หมดใน " + countdownText(to: first, from: now)
                 }

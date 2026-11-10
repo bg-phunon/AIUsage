@@ -55,6 +55,8 @@ struct UsageItem: Codable, Identifiable, Hashable {
     /// true = CLI บอกแค่ว่า "ถือใบอยู่อย่างน้อยหนึ่งใบ" (`unusedLimitResetStatusCache`)
     /// `limitResets` จึงเป็นแค่ 1 สมมติ ห้ามโชว์เป็นจำนวนจริง
     var limitResetsAtLeast: Bool = false
+    /// ชนิดของใบ เช่น "Fable" — ใบชนิดนี้คืนเฉพาะโควตาของโมเดลนั้น ไม่ได้รีเซ็ตทั้งสัปดาห์
+    var limitResetKind: String? = nil
     var limitResetExpiresAt: Date? = nil
     /// วันหมดอายุของทุกใบ เรียงใบที่จะหมดก่อน — ใบที่หมดแล้วถูกกรองทิ้งตั้งแต่ฝั่งเอนจิน
     var limitResetsExpiring: [Date] = []
@@ -67,7 +69,7 @@ struct UsageItem: Codable, Identifiable, Hashable {
         case weekResetAt
         case profile, plan, model, pctSource, confidence, weekConfidence, dataFetchedAt, severity
         case activeLimit, error, local, costKnown, costCurrency, costSource, costEstimated, costKind
-        case credits, creditsUnlimited, limitResets, limitResetsAtLeast, limitResetExpiresAt
+        case credits, creditsUnlimited, limitResets, limitResetsAtLeast, limitResetKind, limitResetExpiresAt
         case limitResetsExpiring, limitResetAvailableAt
         case modelWindows
     }
@@ -133,6 +135,7 @@ struct UsageItem: Codable, Identifiable, Hashable {
         creditsUnlimited = try c.decodeIfPresent(Bool.self, forKey: .creditsUnlimited) ?? false
         limitResets = try c.decodeIfPresent(Int.self, forKey: .limitResets)
         limitResetsAtLeast = try c.decodeIfPresent(Bool.self, forKey: .limitResetsAtLeast) ?? false
+        limitResetKind = try c.decodeIfPresent(String.self, forKey: .limitResetKind)
         limitResetExpiresAt = try c.decodeIfPresent(Date.self, forKey: .limitResetExpiresAt)
         limitResetsExpiring = try c.decodeIfPresent([Date].self, forKey: .limitResetsExpiring) ?? []
         limitResetAvailableAt = try c.decodeIfPresent(Date.self, forKey: .limitResetAvailableAt)

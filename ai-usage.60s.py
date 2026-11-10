@@ -1012,7 +1012,7 @@ CONTRACT_DEFAULTS = {
     # ต่างจาก 0.0 ที่แปลว่า "มีแนวคิดนี้แต่หมดแล้ว"
     "credits": None, "creditsUnlimited": False,
     # ใบรีเซ็ตลิมิตที่ยังไม่หมดอายุ · None = ถังนี้ไม่มีแนวคิดนี้
-    "limitResets": None, "limitResetsAtLeast": False, "limitResetExpiresAt": None, "limitResetsExpiring": [],
+    "limitResets": None, "limitResetsAtLeast": False, "limitResetKind": None, "limitResetExpiresAt": None, "limitResetsExpiring": [],
     # ใบที่ใช้ไปแล้วได้คืนเมื่อไหร่ — ของ Claude เป็นใบต่อสัปดาห์ ไม่ใช่ใบมีวันหมดอายุ
     "limitResetAvailableAt": None,
 }
@@ -1530,7 +1530,8 @@ def claude_config_resets(raw, label, now):
         if not stamps:
             return None
         live = live_codex_resets(sorted(stamps), now)
-        return {"count": len(live), "expiring": live, "nextAvailableAt": None}
+        return {"count": len(live), "expiring": live, "nextAvailableAt": None,
+                "kind": entry.get("kind") if isinstance(entry.get("kind"), str) else None}
     count = entry.get("count")
     if isinstance(count, bool) or not isinstance(count, int) or count < 0:
         return None
@@ -2024,6 +2025,8 @@ def collect(live_override=None):
             "limitResets": resets["count"] if resets else None,
             # True = CLI บอกแค่ว่ามีอย่างน้อยหนึ่งใบ ไม่รู้จำนวนจริง
             "limitResetsAtLeast": bool(resets and resets.get("atLeast")),
+            # ชนิดของใบ (เช่น "Fable" = คืนเฉพาะโควตา Fable ไม่ได้รีเซ็ตทั้งสัปดาห์) — จดมือจากหน้า usage
+            "limitResetKind": resets.get("kind") if resets else None,
             "limitResetExpiresAt": (resets["expiring"][0].isoformat().replace("+00:00", "Z")
                                     if resets and resets["expiring"] else None),
             "limitResetsExpiring": [x.isoformat().replace("+00:00", "Z")

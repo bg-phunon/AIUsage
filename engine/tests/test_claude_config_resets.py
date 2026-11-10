@@ -77,6 +77,20 @@ class KeyingTest(unittest.TestCase):
         self.assertIsNone(s["nextAvailableAt"])
 
 
+class KindTest(unittest.TestCase):
+    """ชนิดของใบที่จดจากหน้า usage (เช่น Fable reset) ต้องตามไปถึง snapshot"""
+
+    def test_kind_is_carried(self):
+        until = iso(NOW + timedelta(days=30))
+        s = state({"work": {"kind": "Fable", "expiring": [until, until]}})
+        self.assertEqual(s["count"], 2)
+        self.assertEqual(s["kind"], "Fable")
+
+    def test_kind_is_optional(self):
+        s = state({"work": {"expiring": [iso(NOW + timedelta(days=30))]}})
+        self.assertIsNone(s["kind"])
+
+
 class PickSourceTest(unittest.TestCase):
     """server > ไฟล์ของ CLI (มีอย่างน้อยหนึ่งใบ) > จดมือ — จดมือชนะไฟล์เฉพาะตอนบอกจำนวนได้"""
 
