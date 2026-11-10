@@ -233,7 +233,6 @@ struct BentoView: View {
         .padding(.horizontal, 16).padding(.vertical, 12)
         .frame(height: 136)
         .background { tileShape(radius: 22) }
-        .overlay { if sev == .critical { Shimmer().clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous)) } }
         .contextMenu { pinMenu(item) }
     }
 
@@ -362,24 +361,4 @@ func compactTokens(_ n: Int) -> String {
     if v >= 1e6 { return String(format: v >= 1e8 ? "%.0fM" : "%.1fM", v / 1e6) }
     if v >= 1e3 { return String(format: "%.0fK", v / 1e3) }
     return "\(n)"
-}
-
-/// แสงกวาดผ่านช้าๆ บนการ์ดที่เต็มแล้ว — เฉพาะตัวที่ critical เท่านั้น ไม่งั้นทั้งบานวูบวาบ
-struct Shimmer: View {
-    @State private var phase: CGFloat = -1
-
-    var body: some View {
-        GeometryReader { geo in
-            LinearGradient(colors: [.clear, Color.white.opacity(0.10), .clear],
-                           startPoint: .leading, endPoint: .trailing)
-                .frame(width: geo.size.width * 0.35)
-                .rotationEffect(.degrees(18))
-                .offset(x: phase * geo.size.width * 1.4)
-        }
-        .allowsHitTesting(false)
-        .onAppear {
-            phase = -0.5
-            withAnimation(.easeInOut(duration: 2.8).delay(1).repeatForever(autoreverses: false)) { phase = 1 }
-        }
-    }
 }
