@@ -139,6 +139,9 @@ struct UsageItem: Codable, Identifiable, Hashable {
     }
 
     var id: String { "\(group)/\(label)" }
+    /// ชื่อที่โชว์ — Muse คือ Muse Code ของ Meta · id ยังใช้ชื่อเดิม หมุดกับที่ซ่อนไว้จะได้ไม่หาย
+    var displayGroup: String { group == "Muse" ? "Muse Code" : group }
+    var displayLabel: String { label == "Muse" ? "Muse Code" : label }
     /// เลือกหน้าต่างที่เร่งด่วนกว่าเสมอ (ไม่ใช่แค่ 5h ถ้ามี) —
     /// ถังที่ 5h ต่ำแต่ 7d ใกล้ชนลิมิตต้องขึ้นเป็น "แย่กว่า" ไม่ใช่ถูกกลบด้วยตัวเลข 5h ที่ดูสบายใจ
     var displayPct: Double? {

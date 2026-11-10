@@ -1893,11 +1893,11 @@ def _codex_has_short_window(cs):
 
 
 def codex_plan_label(plan_type, cs):
-    """ชื่อแผน Codex สำหรับ badge — แผน prolite ไม่มีหน้าต่าง 5 ชม. แต่ server
-    ยังส่ง planType เป็น "pro" (วัดจริง 2026-11-03 ทั้ง app-server และ rollout
-    log) จึงแยก Pro Lite จากรูปหน้าต่าง ไม่ใช่จากชื่อที่ server เรียก
+    """ชื่อแผน Codex สำหรับ badge — ตามที่ server เรียกตรงๆ
 
-    ไม่มีหน้าต่างให้ดูเลย = ตีความไม่ได้ คืนชื่อตามที่ server เรียกตรงๆ
+    เคยเดา Pro Lite จากรูปหน้าต่าง (มีแต่ weekly) แต่ผิด: บัญชี Pro $200 จริงก็
+    มีแต่ weekly เหมือนกัน (ผู้ใช้ยืนยัน 2026-11-10) รูปหน้าต่างแยกสองแผนไม่ได้
+    จึงเชื่อ planType · "prolite" ที่สะกดมาตรงๆ เท่านั้นที่เป็น Pro Lite
     """
     if not isinstance(plan_type, str):
         return None
@@ -1906,10 +1906,7 @@ def codex_plan_label(plan_type, cs):
         return None
     if key in ("prolite", "pro lite"):
         return "Pro Lite"
-    if key == "pro":
-        windows = (cs or {}).get("windows") or {}
-        return "Pro Lite" if windows and not _codex_has_short_window(cs) else "Pro"
-    return {"plus": "Plus", "team": "Team", "enterprise": "Enterprise",
+    return {"pro": "Pro", "plus": "Plus", "team": "Team", "enterprise": "Enterprise",
             "free": "Free"}.get(key, key.title())
 
 

@@ -206,6 +206,10 @@ struct PopoverView: View {
             .padding(.horizontal, 14).padding(.vertical, 8)
             .frame(height: 30)
             ScrollView {
+                if model.designStyle == .darkGlass && !displayItems.isEmpty {
+                    // สไตล์ A = widget แบบ bento: การ์ดใหญ่ตัวที่ใกล้ชน + ช่องเล็ก + ถังที่ไม่มี %
+                    BentoView(items: displayItems, prefs: prefs, now: now).padding(12)
+                } else {
                 VStack(alignment: .leading, spacing: 9) {
                     ForEach(displayItems) { item in row(item) }
                     if displayItems.isEmpty {
@@ -213,6 +217,7 @@ struct PopoverView: View {
                             .frame(maxWidth: .infinity, alignment: .center).padding(.vertical, 40)
                     }
                 }.padding(14)
+                }
             }
             Divider()
             footer
@@ -356,7 +361,7 @@ struct PopoverView: View {
                     providerMark(item.group)
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: 4) {
-                            Text(item.group).font(.system(size: 12, weight: .semibold))
+                            Text(item.displayGroup).font(.system(size: 12, weight: .semibold))
                                 .lineLimit(1).fixedSize()
                             // จุดแดง = ชนลิมิตแล้ว ไม่กินความสูงเหมือนป้ายเดิม
                             if let active = item.activeLimit {
@@ -379,7 +384,7 @@ struct PopoverView: View {
                                           : "ผู้ให้บริการนี้ไม่ได้บอกโควตาคงเหลือมาในไฟล์ใดๆ")
                             }
                         }
-                        Text(item.label).font(.system(size: 10.5)).foregroundStyle(.primary.opacity(0.66))
+                        Text(item.displayLabel).font(.system(size: 10.5)).foregroundStyle(.primary.opacity(0.66))
                     }
                     if let plan = item.plan { Text(plan).font(.system(size: 9, weight: .medium))
                         .padding(.horizontal, 6).padding(.vertical, 2)
@@ -455,9 +460,9 @@ struct PopoverView: View {
             providerMark(item.group)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(item.group).font(.system(size: 12, weight: .semibold))
+                    Text(item.displayGroup).font(.system(size: 12, weight: .semibold))
                         .lineLimit(1).fixedSize()
-                    Text(item.label).font(.system(size: 10.5))
+                    Text(item.displayLabel).font(.system(size: 10.5))
                         .foregroundStyle(.primary.opacity(0.66)).lineLimit(1)
                     if let plan = item.plan {
                         Text(plan).font(.system(size: 9, weight: .medium))

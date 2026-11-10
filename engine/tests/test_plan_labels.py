@@ -68,7 +68,8 @@ class MusePlanLabelTest(unittest.TestCase):
 class CodexPlanLabelTest(unittest.TestCase):
     def test_pro_with_only_a_weekly_window_is_pro_lite(self):
         # เคสจริง 2026-11-03: planType "pro" แต่ primary คือสัปดาห์ secondary null
-        self.assertEqual(engine.codex_plan_label("pro", codex_cs(10080)), "Pro Lite")
+        # Pro $200 จริงก็มีแต่ weekly — รูปหน้าต่างแยกแผนไม่ได้ (2026-11-10)
+        self.assertEqual(engine.codex_plan_label("pro", codex_cs(10080)), "Pro")
 
     def test_pro_with_a_short_window_is_pro(self):
         self.assertEqual(engine.codex_plan_label("pro", codex_cs(300, 10080)), "Pro")
