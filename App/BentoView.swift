@@ -169,6 +169,8 @@ struct BentoView: View {
     let items: [UsageItem]
     @ObservedObject var prefs: Preferences
     let now: Date
+    /// true = อยู่ในหน้าต่างใส การ์ดเป็นแผ่น Liquid Glass จริง · false = แผ่นจางบนพื้นบาน
+    var glass = false
     @State private var selected: String?
     @State private var appeared = false
 
@@ -353,10 +355,14 @@ struct BentoView: View {
         .help(item.displayGroup)
     }
 
-    private func tileShape(radius: CGFloat) -> some View {
-        // ไม่มีเส้นขอบ — แผ่นจางๆ บนกระจกพอแยกช่องได้แล้ว
-        RoundedRectangle(cornerRadius: radius, style: .continuous)
-            .fill(Color.primary.opacity(0.06))
+    @ViewBuilder private func tileShape(radius: CGFloat) -> some View {
+        if glass {
+            GlassPlate(radius: radius)
+        } else {
+            // ไม่มีเส้นขอบ — แผ่นจางๆ บนพื้นบานพอแยกช่องได้แล้ว
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .fill(Color.primary.opacity(0.06))
+        }
     }
 
     @ViewBuilder private func pinMenu(_ item: UsageItem) -> some View {

@@ -12,6 +12,14 @@ struct AIUsageApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
+    /// สไตล์ Liquid Glass บน macOS 26 ใช้หน้าต่างใสแทน popover — ดู GlassPanel.swift
+    private var glassPanel: GlassPanelController?
+    private var isPanelShown: Bool { popover?.isShown == true || glassPanel?.isShown == true }
+    private var wantsGlassPanel: Bool {
+        guard model.designStyle == .darkGlass else { return false }
+        if #available(macOS 26.0, *) { return true }
+        return false
+    }
     private var menuBarHosting: ClickThroughHostingView<MenuBarContent>?
     private var timer: Timer?
     private var runner: EngineRunner?
@@ -168,7 +176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         // status item ไม่รู้ขนาดของ subview เอง ต้องบอกความกว้างตรงๆ
         // แต่ห้ามขยับตอน popover เปิดอยู่ — ปุ่มขยับ = popover ที่เกาะอยู่กระโดดตาม
         // ความกว้างใหม่จะถูก apply ตอน popoverDidClose
-        if popover?.isShown != true {
+        if !isPanelShown {
             statusItem.length = menuBarHosting?.fittingSize.width ?? NSStatusItem.variableLength
         }
     }
@@ -195,8 +203,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             statusItem.menu = nil
             return
         }
-        if popover.isShown {
+        if isPanelShown {
             popover.performClose(nil)
+            glassPanel?.close()
+        } else if wantsGlassPanel {
+            model.snapshot = .load()
+            refresh()
+            if glassPanel == nil {
+                let hosting = NSHostingController(rootView: PopoverView(model: model, prefs: model.prefs))
+                hosting.sizingOptions = .preferredContentSize
+                glassPanel = GlassPanelController(content: hosting) { [weak self] in self?.updateBar() }
+            }
+            glassPanel?.show(below: button)
         } else {
             model.snapshot = .load()
             refresh()   // เปิดดู = อยากเห็นของสด ยิงรอบใหม่เลย
@@ -214,7 +232,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// ผู้ใช้กด "ตั้งค่า…" สองที่แล้วได้คนละอย่างสิ้นเชิง
     @objc private func openSettings() {
         model.showSettings = true
-        if !popover.isShown { togglePopover() }
+        if !isPanelShown { togglePopover() }
     }
 
     /// ติดตั้งโค้ดใหม่ทับตัวเอง — ถามก่อนเสมอ เพราะแอปจะหายไปจากแถบเมนูระหว่าง build

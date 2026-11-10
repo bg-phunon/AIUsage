@@ -127,25 +127,11 @@ struct PopoverView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if model.showSettings { settingsPane } else { mainPane }
-        }
-        // bento พอดีเนื้อหาไม่ต้องเลื่อน (ผู้ใช้ไม่ชอบ scroll) · แบบอื่นกับหน้าตั้งค่ายังสูงตายตัว
-        // หน้าตั้งค่าแยกแท็บแล้วก็สูงตามเนื้อหาเหมือนกัน ไม่มี scroll
-        .frame(width: 380, height: bentoFits || model.showSettings ? nil : 560)
-        .background { panelBackground }
+        Group { if useGlass { glassBody } else { classicBody } }
         // accent ของสไตล์คุมสีปุ่ม/ลิงก์ทั้งบาน — ไม่งั้นสลับสไตล์แล้ว "ไม่เห็นต่าง"
         .tint(useGlass ? Color.accentColor : model.designStyle.accent)
         // กระจกของระบบปรับตามโหมดสว่าง/มืดเอง บังคับมืดคือกลับไปเป็นกล่องดำ
         .preferredColorScheme(model.designStyle == .native || useGlass ? nil : .dark)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay {
-            // กระจกจริงวาดขอบแสงของมันเอง เส้นของเราซ้อนแล้วดูหนา
-            if !useGlass {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Color.white.opacity(model.designStyle == .colorful ? 0.16 : 0.09), lineWidth: 1)
-            }
-        }
         .onReceive(tick) { now = $0 }
         .onAppear {
             now = Date()   // เปิด popover แล้วเวลาต้องสดทันที ไม่รอ tick แรก
@@ -154,6 +140,66 @@ struct PopoverView: View {
         .onReceive(model.$snapshot) { _ in
             now = Date()   // รีเฟรชสำเร็จ = อายุกลับเป็นศูนย์ให้เห็น
             updateAvailable = currentUpdateState().isActionable
+        }
+    }
+
+    /// Liquid Glass ของจริง — ไม่มีพื้นบาน ทุกก้อนเป็นแผ่นกระจกลอยเหนือเดสก์ท็อปแบบ
+    /// Control Center (อยู่ในหน้าต่างใสของ GlassPanelController ไม่ใช่ NSPopover)
+    private var glassBody: some View {
+        VStack(spacing: 8) {
+            if model.showSettings {
+                VStack(spacing: 0) {
+                    HStack(spacing: 8) {
+                        Button { model.showSettings = false } label: {
+                            Image(systemName: "chevron.left")
+                            Text("กลับ")
+                        }
+                        .buttonStyle(.plain)
+                        Spacer()
+                        Text("ตั้งค่า").font(.system(size: 13, weight: .semibold))
+                        Spacer()
+                        Color.clear.frame(width: 44, height: 1)
+                    }
+                    .font(.system(size: 12))
+                    .padding(.horizontal, 14).padding(.top, 12)
+                    SettingsView(model: model, prefs: prefs)
+                }
+                .background { GlassPlate(radius: 24) }
+            } else {
+                header.background { GlassPlate(radius: 20) }
+                if let error = model.engineError {
+                    strip(icon: "exclamationmark.triangle.fill", text: error, tint: .red)
+                        .background { GlassPlate(radius: 14) }
+                }
+                if displayItems.isEmpty {
+                    Text("ยังไม่มีข้อมูล").foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity).padding(.vertical, 40)
+                        .background { GlassPlate(radius: 22) }
+                } else {
+                    BentoView(items: displayItems, prefs: prefs, now: now, glass: true)
+                }
+                footer.background { GlassPlate(radius: 16) }
+            }
+        }
+        .padding(10)   // ที่ว่างให้เงาของกระจก ไม่งั้นโดนขอบหน้าต่างตัด
+        .frame(width: 388)
+    }
+
+    private var classicBody: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if model.showSettings { settingsPane } else { mainPane }
+        }
+        // bento พอดีเนื้อหาไม่ต้องเลื่อน (ผู้ใช้ไม่ชอบ scroll) · แบบอื่นกับหน้าตั้งค่ายังสูงตายตัว
+        // หน้าตั้งค่าแยกแท็บแล้วก็สูงตามเนื้อหาเหมือนกัน ไม่มี scroll
+        .frame(width: 380, height: bentoFits || model.showSettings ? nil : 560)
+        .background { panelBackground }
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            // กระจกจริงวาดขอบแสงของมันเอง เส้นของเราซ้อนแล้วดูหนา
+            if !useGlass {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color.white.opacity(model.designStyle == .colorful ? 0.16 : 0.09), lineWidth: 1)
+            }
         }
     }
 
