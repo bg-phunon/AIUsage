@@ -20,7 +20,7 @@ struct GlassPlate: View {
             let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
             ZStack {
                 ZStack {
-                    shape.fill(.black).shadow(color: .black.opacity(0.32), radius: 16, y: 8)
+                    shape.fill(.black).shadow(color: .black.opacity(0.20), radius: 10, y: 4)
                     shape.fill(.black).blendMode(.destinationOut)
                 }
                 .compositingGroup()
@@ -30,6 +30,41 @@ struct GlassPlate: View {
             RoundedRectangle(cornerRadius: radius, style: .continuous).fill(.ultraThinMaterial)
         }
     }
+}
+
+/// พื้นเบลอไร้ขอบแบบ Notification Center — เบลอสิ่งที่อยู่หลังหน้าต่างทั้งบริเวณ แล้วค่อยๆ
+/// จางหายที่ขอบ ไม่มีกรอบ ไม่มีเส้น (ผู้ใช้ส่งภาพ Notification Center มาเป็นตัวอย่าง
+/// 2026-11-11 หลังเดาผิดสามรอบ: พื้นบานมีกรอบ / เบลอที่ตัวการ์ด / เงาฟุ้ง)
+///
+/// แผ่นเดียวทั้งบาน — ขอบฟุ้งทำด้วย `maskImage` ที่มี alpha ไล่ระดับ ยืดได้ด้วย capInsets
+struct FeatheredBlur: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .hudWindow
+        view.blendingMode = .behindWindow
+        view.state = .active
+        view.maskImage = Self.mask
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
+
+    private static let mask: NSImage = {
+        let side: CGFloat = 120
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            // เงาของสี่เหลี่ยมมน = ขอบที่ alpha ไล่จากทึบไปใส
+            let shadow = NSShadow()
+            shadow.shadowBlurRadius = 12
+            shadow.shadowColor = .black
+            shadow.set()
+            NSColor.black.setFill()
+            NSBezierPath(roundedRect: rect.insetBy(dx: 14, dy: 14), xRadius: 26, yRadius: 26).fill()
+            return true
+        }
+        image.capInsets = NSEdgeInsets(top: 50, left: 50, bottom: 50, right: 50)
+        image.resizingMode = .stretch
+        return image
+    }()
 }
 
 private final class KeyablePanel: NSPanel {
