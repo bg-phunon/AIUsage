@@ -233,7 +233,7 @@ func countdownText(to date: Date?, from now: Date) -> String {
 }
 
 /// ใบรีเซ็ตหนึ่งใบ — ชนิดบอกว่าคืนอะไร (Weekly = ทั้งสัปดาห์ · Fable = เฉพาะโควตา Fable)
-struct ResetGrant: Codable, Equatable {
+struct ResetGrant: Codable, Hashable {
     var kind: String?
     var expiresAt: Date
 }

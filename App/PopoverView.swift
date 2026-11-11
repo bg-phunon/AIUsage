@@ -272,7 +272,13 @@ struct PopoverView: View {
             }
             Spacer()
             GlassCluster(enabled: useGlass) {
-                if updateAvailable {
+                if model.updatingSince != nil {
+                    HStack(spacing: 5) {
+                        ProgressView().controlSize(.small)
+                        Text("กำลังอัปเดต…").font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                    .help("กำลัง build รุ่นใหม่ ราว 1–2 นาที แล้วแอปจะปิดและเปิดใหม่เอง")
+                } else if updateAvailable {
                     // ผ่านทางเดียวกับปุ่มในหน้าตั้งค่า — ถามยืนยันก่อน เพราะแอปจะหายไป 1–2 นาที
                     Button {
                         NotificationCenter.default.post(name: .aiUsageInstallUpdate, object: nil)
@@ -284,6 +290,10 @@ struct PopoverView: View {
                 }
                 Button { refreshEngine() } label: {
                     Image(systemName: "arrow.clockwise")
+                        .rotationEffect(.degrees(model.refreshing ? 360 : 0))
+                        .animation(model.refreshing
+                                   ? .linear(duration: 0.9).repeatForever(autoreverses: false)
+                                   : .default, value: model.refreshing)
                 }.headerButtonStyle(glass: useGlass).help("รีเฟรชเดี๋ยวนี้")
                 Button { model.showSettings = true } label: {
                     Image(systemName: "gearshape")

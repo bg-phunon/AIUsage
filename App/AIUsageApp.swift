@@ -114,6 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var wokeRecently: Bool { Date().timeIntervalSince(lastWake) < wakeGrace }
 
     private func refresh(fresh: Bool = false) {
+        model.refreshing = true
         runner?.run(fresh: fresh) { [weak self] result in
             guard let self else { return }
             if case .failure(let error) = result {
@@ -127,6 +128,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 self.model.engineError = EngineRunner.describe(error)
             } else {
                 self.model.engineError = nil
+            }
+            self.model.refreshing = false
+            // ติดตั้งล้ม (setup.sh จด ok:false) หรือค้างเกิน 10 นาที = เลิกโชว์ "กำลังอัปเดต"
+            // สำเร็จไม่ต้องล้าง — แอปถูกปิดแล้วเปิดใหม่เอง
+            if let since = self.model.updatingSince {
+                let failed = UpdateResult.load().map { $0.at > since && !$0.ok } ?? false
+                if failed || Date().timeIntervalSince(since) > 600 { self.model.updatingSince = nil }
             }
             self.model.snapshot = .load()
             self.model.wokeRecently = self.wokeRecently
@@ -261,6 +269,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
         if !installUpdate(repo: repo) {
             alertInstallFailed(repo: repo)
+        } else {
+            model.updatingSince = Date()
         }
     }
 
@@ -269,6 +279,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         guard let repo = InstallInfo.load()?.repo else { return }
         if !installUpdate(repo: repo) {
             alertInstallFailed(repo: repo)
+        } else {
+            model.updatingSince = Date()
         }
     }
 
@@ -383,6 +395,11 @@ final class ClickThroughHostingView<Content: View>: NSHostingView<Content> {
 }
 
 final class UsageModel: ObservableObject {
+    /// เอนจินกำลังวิ่งรอบใหม่ — ปุ่มรีเฟรชหมุนให้เห็นว่ากดติดแล้ว
+    @Published var refreshing = false
+    /// สั่งติดตั้งอัปเดตไปตั้งแต่เมื่อไหร่ — build กิน 1–2 นาทีก่อนแอปปิดตัวเอง
+    /// ช่วงนั้นต้องบอกว่ากำลังทำอยู่ ไม่ใช่เงียบจนคนกดซ้ำ (ผู้ใช้ขอ 2026-11-11)
+    @Published var updatingSince: Date?
     // Preferences เป็น ObservableObject แยกต่างหาก จงใจไม่ทำเครื่องหมาย @Published ตรงนี้ —
     // view ที่ต้องวาดใหม่ตามหมุด ต้อง @ObservedObject var prefs: Preferences เอง (ดู PopoverView)
     // และ AppDelegate ต้องสมัคร prefs.objectWillChange เองสำหรับแถบเมนู
