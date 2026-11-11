@@ -57,6 +57,8 @@ struct UsageItem: Codable, Identifiable, Hashable {
     var limitResetsAtLeast: Bool = false
     /// ชนิดของใบ เช่น "Fable" — ใบชนิดนี้คืนเฉพาะโควตาของโมเดลนั้น ไม่ได้รีเซ็ตทั้งสัปดาห์
     var limitResetKind: String? = nil
+    /// ใบทีละใบพร้อมชนิด — มีเมื่อบัญชีถือหลายชนิด (Weekly + Fable) เรียงใบที่หมดก่อน
+    var limitResetGrants: [ResetGrant] = []
     var limitResetExpiresAt: Date? = nil
     /// วันหมดอายุของทุกใบ เรียงใบที่จะหมดก่อน — ใบที่หมดแล้วถูกกรองทิ้งตั้งแต่ฝั่งเอนจิน
     var limitResetsExpiring: [Date] = []
@@ -69,7 +71,7 @@ struct UsageItem: Codable, Identifiable, Hashable {
         case weekResetAt
         case profile, plan, model, pctSource, confidence, weekConfidence, dataFetchedAt, severity
         case activeLimit, error, local, costKnown, costCurrency, costSource, costEstimated, costKind
-        case credits, creditsUnlimited, limitResets, limitResetsAtLeast, limitResetKind, limitResetExpiresAt
+        case credits, creditsUnlimited, limitResets, limitResetsAtLeast, limitResetKind, limitResetGrants, limitResetExpiresAt
         case limitResetsExpiring, limitResetAvailableAt
         case modelWindows
     }
@@ -136,6 +138,7 @@ struct UsageItem: Codable, Identifiable, Hashable {
         limitResets = try c.decodeIfPresent(Int.self, forKey: .limitResets)
         limitResetsAtLeast = try c.decodeIfPresent(Bool.self, forKey: .limitResetsAtLeast) ?? false
         limitResetKind = try c.decodeIfPresent(String.self, forKey: .limitResetKind)
+        limitResetGrants = try c.decodeIfPresent([ResetGrant].self, forKey: .limitResetGrants) ?? []
         limitResetExpiresAt = try c.decodeIfPresent(Date.self, forKey: .limitResetExpiresAt)
         limitResetsExpiring = try c.decodeIfPresent([Date].self, forKey: .limitResetsExpiring) ?? []
         limitResetAvailableAt = try c.decodeIfPresent(Date.self, forKey: .limitResetAvailableAt)
@@ -227,4 +230,10 @@ func countdownText(to date: Date?, from now: Date) -> String {
     if d > 0 { return "\(d)วัน \(h)ชม." }
     if h > 0 { return "\(h)ชม. \(m)น." }
     return "\(m)น."
+}
+
+/// ใบรีเซ็ตหนึ่งใบ — ชนิดบอกว่าคืนอะไร (Weekly = ทั้งสัปดาห์ · Fable = เฉพาะโควตา Fable)
+struct ResetGrant: Codable, Equatable {
+    var kind: String?
+    var expiresAt: Date
 }

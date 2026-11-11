@@ -91,6 +91,24 @@ class KindTest(unittest.TestCase):
         self.assertIsNone(s["kind"])
 
 
+class GrantsTest(unittest.TestCase):
+    """หลายชนิดในบัญชีเดียว — Weekly กับ Fable จากหน้า usage ของ claude.ai"""
+
+    def test_kinds_are_merged_soonest_first(self):
+        week, fable = iso(NOW + timedelta(days=30)), iso(NOW + timedelta(days=120))
+        s = state({"work": {"grants": [{"kind": "Fable", "expiring": [fable, fable]},
+                                       {"kind": "Weekly", "expiring": [week]}]}})
+        self.assertEqual(s["count"], 3)
+        self.assertIsNone(s["kind"])                     # ปนกันหลายชนิด
+        self.assertEqual([d["kind"] for d in s["detail"]], ["Weekly", "Fable", "Fable"])
+
+    def test_expired_grants_drop_out(self):
+        s = state({"work": {"grants": [{"kind": "Weekly", "expiring": [iso(NOW - timedelta(days=1))]},
+                                       {"kind": "Fable", "expiring": [iso(NOW + timedelta(days=5))]}]}})
+        self.assertEqual(s["count"], 1)
+        self.assertEqual(s["kind"], "Fable")
+
+
 class PickSourceTest(unittest.TestCase):
     """server > ไฟล์ของ CLI (มีอย่างน้อยหนึ่งใบ) > จดมือ — จดมือชนะไฟล์เฉพาะตอนบอกจำนวนได้"""
 

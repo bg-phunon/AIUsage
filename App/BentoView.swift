@@ -176,6 +176,27 @@ func resetDetailLines(_ item: UsageItem, now: Date) -> [String] {
     }
     var lines: [String] = []
     let dates = item.limitResetsExpiring.filter { $0 > now }
+    let grants = item.limitResetGrants.filter { $0.expiresAt > now }
+    if !grants.isEmpty {
+        // ยุบใบชนิดเดียวกันที่หมดพร้อมกันเป็นบรรทัดเดียว
+        var groups: [(kind: String, date: Date, count: Int)] = []
+        for grant in grants {
+            let kind = grant.kind ?? "ทั่วไป"
+            if let last = groups.last, last.kind == kind, last.date == grant.expiresAt {
+                groups[groups.count - 1].count += 1
+            } else {
+                groups.append((kind, grant.expiresAt, 1))
+            }
+        }
+        for group in groups {
+            lines.append("\(group.kind) · \(group.count) ใบ · ใช้ได้อีก \(countdownText(to: group.date, from: now))")
+        }
+        let kinds = Set(grants.compactMap(\.kind))
+        if kinds.contains("Weekly") { lines.append("Weekly — รีเซ็ตโควตาทั้งสัปดาห์") }
+        if kinds.contains("Fable") { lines.append("Fable — คืนเฉพาะโควตา Fable ไม่ได้รีเซ็ตทั้งสัปดาห์") }
+        lines.append(use)
+        return lines
+    }
     if item.limitResetsAtLeast {
         lines.append("มีอย่างน้อย 1 ใบ — Claude Code ไม่บอกจำนวนและวันหมดอายุ")
         lines.append("ดูจำนวนจริง: พิมพ์ /usage ใน Claude Code")

@@ -1012,7 +1012,8 @@ CONTRACT_DEFAULTS = {
     # ต่างจาก 0.0 ที่แปลว่า "มีแนวคิดนี้แต่หมดแล้ว"
     "credits": None, "creditsUnlimited": False,
     # ใบรีเซ็ตลิมิตที่ยังไม่หมดอายุ · None = ถังนี้ไม่มีแนวคิดนี้
-    "limitResets": None, "limitResetsAtLeast": False, "limitResetKind": None, "limitResetExpiresAt": None, "limitResetsExpiring": [],
+    "limitResets": None, "limitResetsAtLeast": False, "limitResetKind": None,
+    "limitResetGrants": [], "limitResetExpiresAt": None, "limitResetsExpiring": [],
     # ใบที่ใช้ไปแล้วได้คืนเมื่อไหร่ — ของ Claude เป็นใบต่อสัปดาห์ ไม่ใช่ใบมีวันหมดอายุ
     "limitResetAvailableAt": None,
 }
@@ -1524,6 +1525,25 @@ def claude_config_resets(raw, label, now):
     entry = raw.get(label)
     if not isinstance(entry, dict):
         return None
+    # หลายชนิดในบัญชีเดียว (หน้า usage ของ claude.ai แยก "Weekly reset" กับ "Fable reset"):
+    #   {"grants": [{"kind": "Weekly", "expiring": [...]}, {"kind": "Fable", "expiring": [...]}]}
+    if isinstance(entry.get("grants"), list):
+        detail = []
+        for grant in entry["grants"]:
+            if not isinstance(grant, dict):
+                continue
+            kind = grant.get("kind") if isinstance(grant.get("kind"), str) else None
+            for raw_ts in grant.get("expiring") or []:
+                ts = parse_ts(raw_ts) if isinstance(raw_ts, str) else None
+                if ts is not None:
+                    detail.append((ts, kind))
+        if not detail:
+            return None
+        detail = sorted((d for d in detail if d[0] > now), key=lambda d: d[0])
+        kinds = {k for _, k in detail}
+        return {"count": len(detail), "expiring": [t for t, _ in detail], "nextAvailableAt": None,
+                "kind": kinds.pop() if len(kinds) == 1 else None,
+                "detail": [{"kind": k, "expiresAt": t} for t, k in detail]}
     if isinstance(entry.get("expiring"), list):
         stamps = [parse_ts(x) for x in entry["expiring"] if isinstance(x, str)]
         stamps = [x for x in stamps if x is not None]
@@ -2027,6 +2047,9 @@ def collect(live_override=None):
             "limitResetsAtLeast": bool(resets and resets.get("atLeast")),
             # ชนิดของใบ (เช่น "Fable" = คืนเฉพาะโควตา Fable ไม่ได้รีเซ็ตทั้งสัปดาห์) — จดมือจากหน้า usage
             "limitResetKind": resets.get("kind") if resets else None,
+            "limitResetGrants": [{"kind": g["kind"],
+                                  "expiresAt": g["expiresAt"].isoformat().replace("+00:00", "Z")}
+                                 for g in ((resets or {}).get("detail") or [])],
             "limitResetExpiresAt": (resets["expiring"][0].isoformat().replace("+00:00", "Z")
                                     if resets and resets["expiring"] else None),
             "limitResetsExpiring": [x.isoformat().replace("+00:00", "Z")
