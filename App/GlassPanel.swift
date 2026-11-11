@@ -14,7 +14,10 @@ struct GlassPlate: View {
 
     var body: some View {
         if #available(macOS 26.0, *) {
-            Color.clear.glassEffect(.regular, in: .rect(cornerRadius: radius))
+            // เบลอสิ่งที่อยู่หลังหน้าต่างแบบวัสดุของ macOS ต่อการ์ด ไม่มีพื้นบานรวม ไม่มีเส้นกรอบ
+            // (ผู้ใช้ 2026-11-11: กระจกใสเกิน อยากได้เบลอ แต่ไม่เอากรอบทั้งบาน)
+            VisualEffectBackground(material: .popover)
+                .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
         } else {
             RoundedRectangle(cornerRadius: radius, style: .continuous).fill(.ultraThinMaterial)
         }
@@ -64,7 +67,7 @@ final class GlassPanelController {
                              backing: .buffered, defer: true)
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true           // พื้นเบลอทั้งบานต้องมีเงาแบบ popover ของระบบ
+        panel.hasShadow = false
         panel.level = .popUpMenu
         panel.collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
