@@ -14,10 +14,18 @@ struct GlassPlate: View {
 
     var body: some View {
         if #available(macOS 26.0, *) {
-            // เบลอสิ่งที่อยู่หลังหน้าต่างแบบวัสดุของ macOS ต่อการ์ด ไม่มีพื้นบานรวม ไม่มีเส้นกรอบ
-            // (ผู้ใช้ 2026-11-11: กระจกใสเกิน อยากได้เบลอ แต่ไม่เอากรอบทั้งบาน)
-            VisualEffectBackground(material: .popover)
-                .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+            // ตัวการ์ดเป็นกระจกเหมือนเดิม — สิ่งที่ผู้ใช้ขอ (2026-11-11) คือ "เงา" ฟุ้งๆ แบบหน้าต่าง
+            // macOS ไม่ใช่เบลอที่ตัวการ์ดและไม่ใช่กรอบ · เงาเจาะกลางออก (destinationOut)
+            // ไม่งั้นก้อนดำใต้กระจกโปร่งจะทำให้ทั้งการ์ดมืด
+            let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+            ZStack {
+                ZStack {
+                    shape.fill(.black).shadow(color: .black.opacity(0.32), radius: 16, y: 8)
+                    shape.fill(.black).blendMode(.destinationOut)
+                }
+                .compositingGroup()
+                Color.clear.glassEffect(.regular, in: .rect(cornerRadius: radius))
+            }
         } else {
             RoundedRectangle(cornerRadius: radius, style: .continuous).fill(.ultraThinMaterial)
         }

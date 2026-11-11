@@ -181,8 +181,9 @@ struct PopoverView: View {
                 footer.background { GlassPlate(radius: 16) }
             }
         }
-        .padding(10)
-        .frame(width: 388)
+        // ที่ว่างรอบๆ ให้เงาฟุ้งออกไปได้ ไม่งั้นโดนขอบหน้าต่างตัดเป็นเส้นคม
+        .padding(.horizontal, 24).padding(.top, 10).padding(.bottom, 30)
+        .frame(width: 416)
     }
 
     private var classicBody: some View {
