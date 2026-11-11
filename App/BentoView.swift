@@ -118,6 +118,11 @@ struct MiniMeter: View {
         return window.pct
     }
 
+    private var pctLabel: String {
+        guard let pct else { return "—" }
+        return (window?.sure == .estimate ? "~" : "") + "\(Int(pct.rounded()))%"
+    }
+
     private var fill: Color {
         switch severity(pct) {
         case .critical: return Color(red: 1, green: 0.37, blue: 0.34)
@@ -137,7 +142,9 @@ struct MiniMeter: View {
                 }
             }
             .frame(height: 4)
-            Text(shortCountdown(window?.resetAt, now: now)).frame(width: 22, alignment: .trailing)
+            Text(pctLabel).monospacedDigit().foregroundStyle(.primary.opacity(0.85))
+                .frame(width: 32, alignment: .trailing)
+            Text(shortCountdown(window?.resetAt, now: now)).frame(width: 20, alignment: .trailing)
         }
         .font(.system(size: 9.5, weight: .medium, design: .rounded))
         .foregroundStyle(.secondary)
@@ -265,9 +272,6 @@ struct BentoView: View {
                         .font(.system(size: 11.5)).foregroundStyle(.secondary).lineLimit(1)
                 }
                 // การ์ดใหญ่มักเป็นตัวที่ชนอยู่ — ตอนนั้นแหละที่อยากรู้ว่ามีใบรีเซ็ตไหม
-                if let note = resetNote(item) {
-                    resetButton(item, note: note, size: 11).padding(.top, 3)
-                }
                 // หน้าต่างอื่นนอกจากตัวที่ขึ้นเกจใหญ่ — ไม่งั้นการ์ดใหญ่บอกแค่เลขเดียว
                 let rest = displayableWindows(item).filter { $0.label != window?.label }
                 if !rest.isEmpty {
@@ -277,6 +281,10 @@ struct BentoView: View {
                         }
                     }
                     .padding(.top, 6)
+                }
+                // ใบรีเซ็ตอยู่ล่างสุดเสมอ — ใต้เกจทุกเส้น (ผู้ใช้ขอ 2026-11-11)
+                if let note = resetNote(item) {
+                    resetButton(item, note: note, size: 11).padding(.top, 5)
                 }
             }
             Spacer(minLength: 0)
@@ -430,6 +438,15 @@ struct BentoView: View {
             ProviderLogo(group: item.group, size: logo, tint: logoTint(item.group))
             Text(item.displayLabel).font(.system(size: font, weight: .semibold))
                 .lineLimit(1).minimumScaleFactor(0.8)
+            // หมุด = ถังนี้ขึ้นแถบเมนู — ต้องเห็นและกดได้ตรงนี้ ไม่ใช่ซ่อนในคลิกขวา
+            Button { prefs.togglePin(item.id) } label: {
+                Image(systemName: prefs.pinned.contains(item.id) ? "pin.fill" : "pin")
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(prefs.pinned.contains(item.id) ? Color.accentColor : Color.secondary.opacity(0.6))
+                    .frame(width: 16, height: 16).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!prefs.pinned.contains(item.id) && !prefs.canPin(item.id))
             Spacer(minLength: 4)
             if let plan = item.plan {
                 Text(plan).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
