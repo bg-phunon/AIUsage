@@ -64,7 +64,7 @@ final class GlassPanelController {
                              backing: .buffered, defer: true)
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = false          // กระจกแต่ละแผ่นมีเงาของมันเอง
+        panel.hasShadow = true           // พื้นเบลอทั้งบานต้องมีเงาแบบ popover ของระบบ
         panel.level = .popUpMenu
         panel.collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false

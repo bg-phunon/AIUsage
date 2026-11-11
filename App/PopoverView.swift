@@ -181,8 +181,17 @@ struct PopoverView: View {
                 footer.background { GlassPlate(radius: 16) }
             }
         }
-        .padding(10)   // ที่ว่างให้เงาของกระจก ไม่งั้นโดนขอบหน้าต่างตัด
+        .padding(10)
         .frame(width: 388)
+        // พื้นเบลอทั้งบานแบบ popover/Control Center ของ macOS — การ์ดกระจกลอยบนวอลเปเปอร์ตรงๆ
+        // ใสเกินไป อ่านยากและไม่เหมือนของระบบ (ผู้ใช้ขอ 2026-11-11) · แผ่นเดียวทั้งบาน
+        // ไม่ใช่แผ่นต่อการ์ด จึงไม่ซ้ำรอยเคส Auto Layout พัง
+        .background { VisualEffectBackground(material: .popover) }
+        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.14), lineWidth: 0.5)
+        }
     }
 
     private var classicBody: some View {
