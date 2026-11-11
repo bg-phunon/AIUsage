@@ -40,7 +40,12 @@ struct GlassPlate: View {
 struct FeatheredBlur: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
-        view.material = .hudWindow
+        // วัสดุที่ย้อมสีน้อยที่สุด — hudWindow มืดทึบจนกลายเป็นแผ่นดำมีขอบ ไม่ใช่เบลอ
+        // (ภาพจริง 2026-11-11) · ลองวัสดุอื่นได้โดยไม่ต้อง build:
+        //   defaults write com.local.aiusage backdropMaterial -int <rawValue>
+        //   (sidebar 7 · popover 6 · hudWindow 13 · fullScreenUI 15 · underPage 22)
+        let raw = UserDefaults.standard.object(forKey: "backdropMaterial") as? Int
+        view.material = raw.flatMap(NSVisualEffectView.Material.init(rawValue:)) ?? .fullScreenUI
         view.blendingMode = .behindWindow
         view.state = .active
         view.maskImage = Self.mask
@@ -49,19 +54,23 @@ struct FeatheredBlur: NSViewRepresentable {
 
     func updateNSView(_ view: NSVisualEffectView, context: Context) {}
 
+    /// alpha ไล่จาก 1 (กลาง) ถึง 0 (ขอบ) แบบเกาส์ล้วนๆ — วาดเฉพาะ "เงา" ของสี่เหลี่ยมมนที่อยู่
+    /// นอกภาพ ถ้าวาดตัวสี่เหลี่ยมลงไปด้วย alpha จะกระโดด 1 → 0.5 ที่ขอบ เห็นเป็นเส้นกรอบ
+    /// (นั่นคือขอบที่เห็นในภาพรอบก่อน)
     private static let mask: NSImage = {
-        let side: CGFloat = 120
+        let side: CGFloat = 240, far: CGFloat = 2000
         let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
-            // เงาของสี่เหลี่ยมมน = ขอบที่ alpha ไล่จากทึบไปใส
             let shadow = NSShadow()
-            shadow.shadowBlurRadius = 12
+            shadow.shadowBlurRadius = 44
+            shadow.shadowOffset = NSSize(width: -far, height: 0)
             shadow.shadowColor = .black
             shadow.set()
             NSColor.black.setFill()
-            NSBezierPath(roundedRect: rect.insetBy(dx: 14, dy: 14), xRadius: 26, yRadius: 26).fill()
+            NSBezierPath(roundedRect: rect.insetBy(dx: 60, dy: 60).offsetBy(dx: far, dy: 0),
+                         xRadius: 40, yRadius: 40).fill()
             return true
         }
-        image.capInsets = NSEdgeInsets(top: 50, left: 50, bottom: 50, right: 50)
+        image.capInsets = NSEdgeInsets(top: 115, left: 115, bottom: 115, right: 115)
         image.resizingMode = .stretch
         return image
     }()

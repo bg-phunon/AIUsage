@@ -182,8 +182,9 @@ struct PopoverView: View {
             }
         }
         // ที่ว่างรอบๆ ให้เงาฟุ้งออกไปได้ ไม่งั้นโดนขอบหน้าต่างตัดเป็นเส้นคม
-        .padding(.horizontal, 24).padding(.top, 22).padding(.bottom, 28)
-        .frame(width: 416)
+        // ที่ว่างกว้างๆ รอบการ์ด = ระยะที่พื้นเบลอค่อยๆ จางจนมองไม่เห็นขอบ
+        .padding(.horizontal, 56).padding(.top, 40).padding(.bottom, 56)
+        .frame(width: 480)
         // พื้นเบลอไร้ขอบแบบ Notification Center — การ์ดลอยอยู่บนบริเวณที่เบลอ ขอบค่อยๆ จาง
         .background { FeatheredBlur() }
     }
