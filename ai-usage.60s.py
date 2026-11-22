@@ -47,6 +47,7 @@ from aiusage import utilization as _util  # noqa: E402
 from aiusage import quota429 as _q429  # noqa: E402
 from aiusage import muselogs as _muse  # noqa: E402
 from aiusage import musetui as _musetui  # noqa: E402
+from aiusage import agytui as _agytui  # noqa: E402
 from aiusage import mimo as _mimo  # noqa: E402
 from aiusage import byteplus as _byteplus  # noqa: E402
 
@@ -1652,6 +1653,73 @@ def muse_plan_mult(name, default=1):
 MUSE_PLAN_LABELS = {"everyday": "Everyday", "high": "High", "power": "Power"}
 
 
+AGY_ERRORS = {
+    "trust_prompt": "agy ถาม trust โฟลเดอร์อื่น — ไม่กดให้",
+    "screen_unparsed": "อ่านจอ /usage ของ agy ไม่ออก",
+    "FileNotFoundError": "ไม่พบ agy CLI",
+}
+
+
+def antigravity_item(reading, fetched_at, activity_ts, error, now):
+    """ผลจากจอ `/usage` ของ agy → item · กลุ่ม Gemini เป็น 5h/7d หลัก กลุ่มอื่นเป็นแถบรายกลุ่ม
+
+    มีการใช้หลังอ่านเลข = ของจริงมีแต่สูงกว่า → lower_bound (ไม่เดาต่อจาก token เพราะ
+    Google หักตามต้นทุน token ที่เราไม่เห็น) · หน้าต่างที่เลยเวลารีเซ็ตไปแล้ว = ไม่รู้ ไม่ใช่ 0
+    """
+    groups = (reading or {}).get("groups") or []
+    primary = next((g for g in groups if g["label"] == "Gemini"),
+                   groups[0] if groups else None)
+    stale = (fetched_at is not None and activity_ts is not None
+             and activity_ts > fetched_at + _agytui.PROBE_GRACE)
+    conf = "lower_bound" if stale else None
+
+    def iso(dt):
+        return dt.isoformat().replace("+00:00", "Z") if dt else None
+
+    def win(w):
+        if not w:
+            return None, None
+        if w["resetAt"] is not None and now >= w["resetAt"]:
+            return None, None
+        return round(w["usedPct"], 1), w["resetAt"]
+
+    pct, reset = win(primary.get("session")) if primary else (None, None)
+    wpct, wreset = win(primary.get("weekly")) if primary else (None, None)
+    model_windows = []
+    for g in groups:
+        if g is primary:
+            continue
+        only_week = "session" not in g
+        for key, suffix in (("session", "5h"), ("weekly", "7d")):
+            p, r = win(g.get(key))
+            if p is None:
+                continue
+            model_windows.append({
+                "label": g["label"] if only_week else "%s %s" % (g["label"], suffix),
+                "pct": p, "confidence": conf, "resetAt": iso(r)})
+    fetched = (datetime.fromtimestamp(fetched_at, timezone.utc)
+               if isinstance(fetched_at, (int, float)) else None)
+    has_pct = pct is not None or wpct is not None or bool(model_windows)
+    return with_contract({
+        "group": "Antigravity", "label": "Antigravity", "window": "5 ชม.",
+        "pct": pct, "pctEstimated": False,
+        "tokens": 0, "cost": None, "calls": 0,
+        "resetAt": iso(reset),
+        "weekTokens": 0, "weekCost": None, "weekPct": wpct,
+        "profile": None,
+        # ชื่อแผนจากหัวจอ "(Google AI Pro)" เท่านั้น — อ่านไม่เจอ = ไม่มี badge
+        "plan": (reading or {}).get("plan"),
+        "pctSource": "official" if has_pct else None,
+        "confidence": conf if pct is not None else None,
+        "weekConfidence": conf if wpct is not None else None,
+        "weekResetAt": iso(wreset),
+        "modelWindows": model_windows,
+        "dataFetchedAt": iso(fetched),
+        "error": (AGY_ERRORS.get(error, error)[:120]
+                  if error and not reading else None),
+    })
+
+
 def muse_plan_label(name):
     """ชื่อแผน Muse สำหรับ badge — ไม่มีชื่อในจุดยึดคือไม่รู้ ห้ามเดาเป็น Everyday
     (ตัวคูณ fallback เป็น 1 ได้เพราะใช้แค่สเกล % แต่ชื่อที่โชว์ผิดคือข้อมูลเท็จ)"""
@@ -2282,7 +2350,28 @@ def collect(live_override=None):
                             if mf["weekResetAt"] else None),
         }))
 
+    # Antigravity: % จากจอ `/usage` ของ agy CLI (ไม่เรียกโมเดล) — process แยกเหมือน Muse
+    # ผูกกับสวิตช์ live usage · มีแถวนี้แล้วตัวนับกรอกเองของ Antigravity ไม่ต้องโผล่ซ้ำ
+    agy_cfg = cfg.get("antigravity")
+    if not isinstance(agy_cfg, dict):
+        agy_cfg = {"enabled": True}  # คีย์ใหม่ — ไม่มี = ค่าปริยาย ไม่เขียน config
+    agy_live = False
+    if live_enabled and agy_cfg.get("enabled", True) and _agytui.cli_bin():
+        try:
+            activity = _agytui.latest_activity()
+            _agytui.kick(activity)
+            store = _agytui.read_cache()
+            reading = _agytui.load_reading(store.get("reading"))
+            if reading is not None or store.get("lastError"):
+                items.append(antigravity_item(reading, store.get("fetchedAt"), activity,
+                                              store.get("lastError"), now))
+                agy_live = True
+        except Exception:  # noqa: BLE001 — ถามไม่ได้ก็เหลือตัวนับกรอกเอง
+            pass
+
     for m in cfg.get("manual", []):
+        if agy_live and m.get("id") == "antigravity":
+            continue
         cur = manual_state(m, state)
         items.append(with_contract({
             "group": "กรอกเอง",
