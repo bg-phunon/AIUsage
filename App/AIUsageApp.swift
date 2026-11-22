@@ -380,8 +380,10 @@ struct MenuBarContent: View {
     private static var logoCache: [String: NSImage] = [:]
     static func logo(_ name: String) -> NSImage? {
         if let cached = logoCache[name] { return cached }
-        guard let url = Bundle.main.url(forResource: name, withExtension: "svg"),
-              let image = NSImage(contentsOf: url) else { return nil }
+        let svg = Bundle.main.url(forResource: name, withExtension: "svg").flatMap(NSImage.init(contentsOf:))
+        // ถังที่ไม่มีโลโก้ในแอป (Antigravity) ใช้ SF Symbol แทน
+        guard let image = svg ?? NSImage(systemSymbolName: name, accessibilityDescription: nil)
+        else { return nil }
         image.isTemplate = true
         logoCache[name] = image
         return image

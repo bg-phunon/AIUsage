@@ -52,6 +52,9 @@ func menuBarSegments(snapshot: UsageSnapshot, now: Date, wokeRecently: Bool,
         ("Codex", "codex", "#67C587"),
         ("Muse", "muse", "#5B5BD6"),
         ("Xiaomi MiMo", "xiaomi", "#FF6900"),
+        // ไม่มีไฟล์โลโก้ — "sparkle" เป็นชื่อ SF Symbol ที่ logo() ใช้เมื่อหา SVG ไม่เจอ
+        // (เคสจริง 2026-11-22: ปักหมุด Antigravity แล้วแถบเมนูไม่ขึ้น เพราะไม่อยู่ในรายการนี้)
+        ("Antigravity", "sparkle", "#5C9DED"),
     ]
     func windowText(_ pct: Double?, _ conf: String?) -> String? {
         let sure = certainty(confidence: conf)

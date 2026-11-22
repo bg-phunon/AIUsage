@@ -402,6 +402,18 @@ final class MenuBarLabelTests: XCTestCase {
         XCTAssertNil(segments.first?.bottom)
         XCTAssertEqual(segments.first?.assetName, "muse")
     }
+    /// ปักหมุด Antigravity แล้วต้องขึ้นแถบ — เคยหายเพราะไม่อยู่ในรายการ provider
+    func testPinnedAntigravityShowsOnTheBar() {
+        var agy = UsageItem(group: "Antigravity", label: "Antigravity", window: "5 ชม.")
+        agy.pct = 13.2
+        agy.weekPct = 4.5
+        let segments = menuBarSegments(snapshot: snapshot([agy]), now: now, wokeRecently: false,
+                                       pinned: ["Antigravity/Antigravity"])
+        XCTAssertEqual(segments.map(\.id), ["Antigravity/Antigravity"])
+        XCTAssertEqual(segments.first?.top, "13%")
+        XCTAssertEqual(segments.first?.bottom, "5%")
+        XCTAssertEqual(segments.first?.assetName, "sparkle")
+    }
 }
 
 // MARK: - ความกว้างของ status item
