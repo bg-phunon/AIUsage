@@ -70,8 +70,19 @@ xcodebuild -project AIUsage.xcodeproj -scheme AIUsage -configuration Release \
 APP="$ROOT/build/Build/Products/Release/${APP_NAME}.app"
 [ -d "$APP" ] || { echo "  build ไม่ได้ .app — ดู /tmp/aiusage-build.log"; note_result fail; exit 1; }
 
-# ad-hoc sign — SMAppService (เปิดเองตอนเข้าระบบ) ปฏิเสธแอปที่ไม่มีลายเซ็นเลย
-codesign --force --deep -s - "$APP" 2>/dev/null || echo "  (เซ็น ad-hoc ไม่ได้ — login item อาจใช้ไม่ได้)"
+# เซ็นด้วยใบรับรองคงที่ของแอปนี้ถ้ามี — macOS ผูกสิทธิ์ (Documents, Keychain) ไว้กับลายเซ็น
+# ad-hoc เปลี่ยนทุก build ผู้ใช้จึงโดนถามสิทธิ์ใหม่ทุกครั้งที่อัปเดต · ใบ self-signed ใน
+# login keychain (สร้าง 2026-11-22 import ด้วย -T /usr/bin/codesign จึงไม่เด้งถาม)
+# ไม่ต้อง trust — `find-identity` แบบไม่มี -v เห็นใบที่ยังไม่ trust ด้วย
+# ไม่มีใบ = ad-hoc เหมือนเดิม (SMAppService ปฏิเสธแอปที่ไม่มีลายเซ็นเลย)
+SIGN_NAME="${AIUSAGE_SIGN_IDENTITY:-AIUsage Local Signing}"
+SIGN_ID=$(security find-identity -p codesigning 2>/dev/null \
+  | awk -v n="\"$SIGN_NAME\"" 'index($0, n) { print $2; exit }')
+if [ -n "$SIGN_ID" ] && codesign --force --deep -s "$SIGN_ID" "$APP" 2>/dev/null; then
+  echo "  เซ็นด้วย $SIGN_NAME"
+else
+  codesign --force --deep -s - "$APP" 2>/dev/null || echo "  (เซ็น ad-hoc ไม่ได้ — login item อาจใช้ไม่ได้)"
+fi
 
 echo "▸ 4/4 ติดตั้ง"
 quit_app
