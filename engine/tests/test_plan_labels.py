@@ -55,9 +55,9 @@ class ClaudePlanLabelTest(unittest.TestCase):
 
 class MusePlanLabelTest(unittest.TestCase):
     def test_known_tiers(self):
-        self.assertEqual(engine.muse_plan_label("power"), "Power")
-        self.assertEqual(engine.muse_plan_label(" High "), "High")
-        self.assertEqual(engine.muse_plan_label("everyday"), "Everyday")
+        self.assertEqual(engine.muse_plan_label("power"), "Muse Code Power")
+        self.assertEqual(engine.muse_plan_label(" High "), "Muse Code High")
+        self.assertEqual(engine.muse_plan_label("everyday"), "Muse Code Everyday")
 
     def test_missing_name_is_none_not_everyday(self):
         self.assertIsNone(engine.muse_plan_label(None))

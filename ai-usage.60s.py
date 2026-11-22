@@ -1726,7 +1726,8 @@ def muse_plan_label(name):
     if not isinstance(name, str) or not name.strip():
         return None
     key = name.strip().lower()
-    return MUSE_PLAN_LABELS.get(key, key.replace("_", " ").title())
+    # ชื่อเต็มตามที่จอ /upgrade เรียก "Muse Code Power Usage" (ผู้ใช้ขอ 2026-11-22)
+    return "Muse Code " + MUSE_PLAN_LABELS.get(key, key.replace("_", " ").title())
 
 
 def parse_muse_anchor(raw):
