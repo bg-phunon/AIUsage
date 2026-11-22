@@ -133,7 +133,8 @@ struct MiniMeter: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Text(label).lineLimit(1).minimumScaleFactor(0.8).frame(width: 30, alignment: .leading)
+            // กว้างตามป้าย — ป้ายกลุ่มของ Antigravity ("Claude 5h") ยาวกว่า 5h/7d/Fable
+            Text(label).lineLimit(1).fixedSize().frame(minWidth: 30, alignment: .leading)
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(Color.primary.opacity(0.10))
@@ -478,7 +479,10 @@ struct BentoView: View {
 
     @ViewBuilder private func tileShape(radius: CGFloat) -> some View {
         if glass {
-            GlassPlate(radius: radius)
+            // บนบานกระจก: การ์ดเป็นเนื้อหา ไม่ใช่กระจกอีกชั้น (HIG ห้ามกระจกในชั้นเนื้อหา)
+            // มุมซ้อนเป็นวงกับบาน ไม่ใช้ radius ของแบบเก่า
+            RoundedRectangle(cornerRadius: GlassMetrics.cardRadius, style: .continuous)
+                .fill(GlassMetrics.cardFill)
         } else {
             // ไม่มีเส้นขอบ — แผ่นจางๆ บนพื้นบานพอแยกช่องได้แล้ว
             RoundedRectangle(cornerRadius: radius, style: .continuous)
@@ -497,6 +501,7 @@ struct BentoView: View {
         switch group {
         case "Claude Code": return Color(red: 0.91, green: 0.57, blue: 0.42)
         case "Muse": return Color(red: 0.60, green: 0.66, blue: 1.0)
+        case "Antigravity": return Color(red: 0.36, green: 0.62, blue: 1.0)
         default: return .primary
         }
     }

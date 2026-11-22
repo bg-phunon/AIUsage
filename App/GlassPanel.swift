@@ -1,79 +1,51 @@
 import AppKit
 import SwiftUI
 
-/// แผ่น Liquid Glass ของจริง — `glassEffect` ของ SwiftUI หักเหสิ่งที่อยู่หลังหน้าต่าง
+/// ขนาดที่ต้องสัมพันธ์กันของบานกระจก — มุมซ้อนเป็นวง (concentric) ตาม HIG:
+/// รัศมีการ์ดข้างใน = รัศมีบาน − ระยะขอบใน
+enum GlassMetrics {
+    static let panelRadius: CGFloat = 22
+    static let inset: CGFloat = 10
+    static var cardRadius: CGFloat { panelRadius - inset }
+    /// ที่ว่างรอบบานในหน้าต่างใส ให้เงาไม่โดนขอบหน้าต่างตัด
+    static let shadowRoom: CGFloat = 16
+    /// พื้นการ์ดเนื้อหาบนบานกระจก — จางพอแยกช่อง ไม่ใช่กระจกอีกชั้น
+    static let cardFill = Color.primary.opacity(0.06)
+}
+
+/// แผ่น Liquid Glass ของบาน — `glassEffect` ของ SwiftUI หักเหสิ่งที่อยู่หลังหน้าต่าง
 ///
-/// ต้องอยู่ในหน้าต่างใส (GlassPanelController) ถึงจะเห็นวอลเปเปอร์ผ่านกระจก วางใน
-/// NSPopover จะได้แค่กระจกซ้อนบนพื้น popover ที่ทึบอยู่แล้ว
+/// ใช้ **แผ่นเดียวเป็นพื้นบาน** (HIG: กระจกอยู่ชั้นควบคุม ไม่อยู่ชั้นเนื้อหา และไม่ซ้อนกระจก)
+/// ต้องอยู่ในหน้าต่างใส (GlassPanelController) ถึงจะเห็นวอลเปเปอร์ผ่านกระจก
+/// Reduce Transparency เปิด = พื้นทึบของหน้าต่างแทน
 ///
-/// **ห้ามใช้ NSGlassEffectView ผ่าน NSViewRepresentable เป็นพื้นการ์ด** (เคสจริง 2026-11-10):
-/// แผ่น AppKit เป็นสิบแผ่น + หน้าต่างที่ปรับขนาดตามเนื้อหา ทำ Auto Layout ล้น stack
+/// **ห้ามใช้ NSGlassEffectView ผ่าน NSViewRepresentable** (เคสจริง 2026-11-10):
+/// แผ่น AppKit + หน้าต่างที่ปรับขนาดตามเนื้อหา ทำ Auto Layout ล้น stack
 /// แอปพังทันทีที่เปิดดู ("Thread stack size exceeded" ใน NSISEngine)
 struct GlassPlate: View {
     let radius: CGFloat
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
-        if #available(macOS 26.0, *) {
-            // ตัวการ์ดเป็นกระจกเหมือนเดิม — สิ่งที่ผู้ใช้ขอ (2026-11-11) คือ "เงา" ฟุ้งๆ แบบหน้าต่าง
-            // macOS ไม่ใช่เบลอที่ตัวการ์ดและไม่ใช่กรอบ · เงาเจาะกลางออก (destinationOut)
-            // ไม่งั้นก้อนดำใต้กระจกโปร่งจะทำให้ทั้งการ์ดมืด
-            let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        if reduceTransparency {
+            shape.fill(Color(nsColor: .windowBackgroundColor))
+                .shadow(color: .black.opacity(0.25), radius: 14, y: 6)
+        } else if #available(macOS 26.0, *) {
+            // หน้าต่างใสไม่มีเงาของระบบ — วาดเงาเองแบบเจาะกลางออก (destinationOut)
+            // ไม่งั้นก้อนดำใต้กระจกโปร่งจะทำให้ทั้งบานมืด
             ZStack {
                 ZStack {
-                    shape.fill(.black).shadow(color: .black.opacity(0.20), radius: 10, y: 4)
+                    shape.fill(.black).shadow(color: .black.opacity(0.22), radius: 14, y: 6)
                     shape.fill(.black).blendMode(.destinationOut)
                 }
                 .compositingGroup()
                 Color.clear.glassEffect(.regular, in: .rect(cornerRadius: radius))
             }
         } else {
-            RoundedRectangle(cornerRadius: radius, style: .continuous).fill(.ultraThinMaterial)
+            shape.fill(.ultraThinMaterial)
         }
     }
-}
-
-/// พื้นเบลอไร้ขอบแบบ Notification Center — เบลอสิ่งที่อยู่หลังหน้าต่างทั้งบริเวณ แล้วค่อยๆ
-/// จางหายที่ขอบ ไม่มีกรอบ ไม่มีเส้น (ผู้ใช้ส่งภาพ Notification Center มาเป็นตัวอย่าง
-/// 2026-11-11 หลังเดาผิดสามรอบ: พื้นบานมีกรอบ / เบลอที่ตัวการ์ด / เงาฟุ้ง)
-///
-/// แผ่นเดียวทั้งบาน — ขอบฟุ้งทำด้วย `maskImage` ที่มี alpha ไล่ระดับ ยืดได้ด้วย capInsets
-struct FeatheredBlur: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        // วัสดุที่ย้อมสีน้อยที่สุด — hudWindow มืดทึบจนกลายเป็นแผ่นดำมีขอบ ไม่ใช่เบลอ
-        // (ภาพจริง 2026-11-11) · ลองวัสดุอื่นได้โดยไม่ต้อง build:
-        //   defaults write com.local.aiusage backdropMaterial -int <rawValue>
-        //   (sidebar 7 · popover 6 · hudWindow 13 · fullScreenUI 15 · underPage 22)
-        let raw = UserDefaults.standard.object(forKey: "backdropMaterial") as? Int
-        view.material = raw.flatMap(NSVisualEffectView.Material.init(rawValue:)) ?? .fullScreenUI
-        view.blendingMode = .behindWindow
-        view.state = .active
-        view.maskImage = Self.mask
-        return view
-    }
-
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
-
-    /// alpha ไล่จาก 1 (กลาง) ถึง 0 (ขอบ) แบบเกาส์ล้วนๆ — วาดเฉพาะ "เงา" ของสี่เหลี่ยมมนที่อยู่
-    /// นอกภาพ ถ้าวาดตัวสี่เหลี่ยมลงไปด้วย alpha จะกระโดด 1 → 0.5 ที่ขอบ เห็นเป็นเส้นกรอบ
-    /// (นั่นคือขอบที่เห็นในภาพรอบก่อน)
-    private static let mask: NSImage = {
-        let side: CGFloat = 240, far: CGFloat = 2000
-        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
-            let shadow = NSShadow()
-            shadow.shadowBlurRadius = 44
-            shadow.shadowOffset = NSSize(width: -far, height: 0)
-            shadow.shadowColor = .black
-            shadow.set()
-            NSColor.black.setFill()
-            NSBezierPath(roundedRect: rect.insetBy(dx: 60, dy: 60).offsetBy(dx: far, dy: 0),
-                         xRadius: 40, yRadius: 40).fill()
-            return true
-        }
-        image.capInsets = NSEdgeInsets(top: 115, left: 115, bottom: 115, right: 115)
-        image.resizingMode = .stretch
-        return image
-    }()
 }
 
 private final class KeyablePanel: NSPanel {
@@ -83,8 +55,8 @@ private final class KeyablePanel: NSPanel {
     override func cancelOperation(_ sender: Any?) { onCancel?() }
 }
 
-/// หน้าต่างใสไร้กรอบแทน NSPopover สำหรับสไตล์ Liquid Glass — แบบ Control Center:
-/// ไม่มีพื้นบาน การ์ดแต่ละใบเป็นกระจกลอยเหนือเดสก์ท็อปตรงๆ
+/// หน้าต่างใสไร้กรอบแทน NSPopover สำหรับสไตล์ Liquid Glass — บานเป็นกระจกแผ่นเดียว
+/// (`GlassPlate`) ลอยเหนือเดสก์ท็อปตรงๆ
 ///
 /// NSPopover มีพื้นของมันเองที่เอาออกไม่ได้ กระจกที่วางข้างในจึงไม่มีวันเห็นวอลเปเปอร์
 final class GlassPanelController {

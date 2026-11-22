@@ -20,16 +20,18 @@ struct VisualEffectBackground: NSViewRepresentable {
     }
 }
 
-/// กลุ่มปุ่มกระจก — ปุ่มที่อยู่ใน container เดียวกันหลอมเป็นก้อนเดียวตอนใกล้กัน
-/// แบบ toolbar ของ macOS 26 · เครื่องเก่าได้ HStack ธรรมดา
+/// กลุ่มปุ่มบนหัว — สไตล์ Liquid Glass รวมเป็นแคปซูลก้อนเดียว · แบบอื่นได้ HStack ธรรมดา
 struct GlassCluster<Content: View>: View {
     let enabled: Bool
     @ViewBuilder let content: Content
 
     var body: some View {
-        if #available(macOS 26.0, *), enabled {
-            // tint ของทั้งบานทำให้ปุ่มกระจกกลายเป็นก้อนสีทึบ — ปุ่มระบบเป็นกระจกใสไอคอนขาวดำ
-            GlassEffectContainer(spacing: 6) { HStack(spacing: 6) { content } }.tint(nil)
+        if enabled {
+            // บนบานกระจกแล้ว ปุ่มไม่เป็นกระจกอีกชั้น (HIG ห้ามซ้อนกระจก) — รวมเป็นแคปซูลจาง
+            // ก้อนเดียวแบบกลุ่มปุ่มบน toolbar ของ macOS 26
+            HStack(spacing: 0) { content }
+                .padding(2)
+                .background(Capsule().fill(Color.primary.opacity(0.08)))
         } else {
             HStack(spacing: 8) { content }
         }
@@ -143,8 +145,12 @@ struct PopoverView: View {
         }
     }
 
-    /// Liquid Glass ของจริง — ไม่มีพื้นบาน ทุกก้อนเป็นแผ่นกระจกลอยเหนือเดสก์ท็อปแบบ
-    /// Control Center (อยู่ในหน้าต่างใสของ GlassPanelController ไม่ใช่ NSPopover)
+    /// Liquid Glass ตาม HIG (2026-11-22): **กระจกแผ่นเดียวเป็นพื้นบาน** เนื้อหาอยู่บนพื้นจาง
+    ///
+    /// "Don't use Liquid Glass in the content layer" และห้ามซ้อนกระจกบนกระจก — รอบก่อนๆ
+    /// ทำการ์ดทุกใบเป็นกระจกแยกแผ่นบนพื้นเบลอวาดเอง ผู้ใช้บอกไม่ใช่ของแท้มาหลายรอบ
+    /// มุมซ้อนเป็นวง: บาน 22 − ขอบใน 10 = การ์ด 12 (`GlassMetrics`)
+    /// อยู่ในหน้าต่างใสของ GlassPanelController ไม่ใช่ NSPopover
     private var glassBody: some View {
         VStack(spacing: 8) {
             if model.showSettings {
@@ -161,32 +167,37 @@ struct PopoverView: View {
                         Color.clear.frame(width: 44, height: 1)
                     }
                     .font(.system(size: 12))
-                    .padding(.horizontal, 14).padding(.top, 12)
+                    .padding(.horizontal, 8).padding(.top, 4)
                     SettingsView(model: model, prefs: prefs)
                 }
-                .background { GlassPlate(radius: 24) }
             } else {
-                header.background { GlassPlate(radius: 20) }
+                header
                 if let error = model.engineError {
                     strip(icon: "exclamationmark.triangle.fill", text: error, tint: .red)
-                        .background { GlassPlate(radius: 14) }
+                        .clipShape(RoundedRectangle(cornerRadius: GlassMetrics.cardRadius, style: .continuous))
+                } else if snapshotState != .fresh, let age = snapshotAge {
+                    strip(icon: "arrow.clockwise", text: "อัปเดตล่าสุด \(ageText(age)) ที่แล้ว",
+                          tint: snapshotState == .dead ? .red : .orange)
+                        .clipShape(RoundedRectangle(cornerRadius: GlassMetrics.cardRadius, style: .continuous))
                 }
                 if displayItems.isEmpty {
                     Text("ยังไม่มีข้อมูล").foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity).padding(.vertical, 40)
-                        .background { GlassPlate(radius: 22) }
+                        .background {
+                            RoundedRectangle(cornerRadius: GlassMetrics.cardRadius, style: .continuous)
+                                .fill(GlassMetrics.cardFill)
+                        }
                 } else {
                     BentoView(items: displayItems, prefs: prefs, now: now, glass: true)
                 }
-                footer.background { GlassPlate(radius: 16) }
+                footer
             }
         }
-        // ที่ว่างรอบๆ ให้เงาฟุ้งออกไปได้ ไม่งั้นโดนขอบหน้าต่างตัดเป็นเส้นคม
-        // ที่ว่างกว้างๆ รอบการ์ด = ระยะที่พื้นเบลอค่อยๆ จางจนมองไม่เห็นขอบ
-        .padding(.horizontal, 56).padding(.top, 40).padding(.bottom, 56)
-        .frame(width: 480)
-        // พื้นเบลอไร้ขอบแบบ Notification Center — การ์ดลอยอยู่บนบริเวณที่เบลอ ขอบค่อยๆ จาง
-        .background { FeatheredBlur() }
+        .padding(GlassMetrics.inset)
+        .frame(width: 388)
+        .background { GlassPlate(radius: GlassMetrics.panelRadius) }
+        // ที่ว่างรอบบานให้เงาของแผ่นกระจกไม่โดนขอบหน้าต่างตัด
+        .padding(GlassMetrics.shadowRoom)
     }
 
     private var classicBody: some View {
@@ -307,7 +318,7 @@ struct PopoverView: View {
                 }.headerButtonStyle(glass: useGlass).help("ออกจากแอป")
             }
         }
-        .padding(.horizontal, 14).padding(.vertical, 12)
+        .padding(.horizontal, useGlass ? 6 : 14).padding(.vertical, useGlass ? 2 : 12)
         .background(chromeFill)
     }
 
@@ -361,7 +372,7 @@ struct PopoverView: View {
         }
         .font(.system(size: 10, weight: .medium))
         .foregroundStyle(.secondary)
-        .padding(.horizontal, 16).padding(.vertical, 10)
+        .padding(.horizontal, useGlass ? 8 : 16).padding(.vertical, useGlass ? 2 : 10)
         .background(chromeFill)
     }
 
@@ -847,6 +858,10 @@ struct ProviderLogo: View {
     var body: some View {
         if let asset, let nsImage = Self.image(asset) {
             Image(nsImage: nsImage).renderingMode(.template).resizable().scaledToFit()
+                .foregroundStyle(tint).frame(width: size, height: size)
+        } else if group == "Antigravity" {
+            // ไม่มีโลโก้แบรนด์ในแอป — สัญลักษณ์ระบบพอให้แยกแถวออก
+            Image(systemName: "sparkle").font(.system(size: size * 0.8, weight: .semibold))
                 .foregroundStyle(tint).frame(width: size, height: size)
         } else {
             Image(systemName: "circle.dashed").frame(width: size, height: size)

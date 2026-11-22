@@ -67,4 +67,24 @@ final class BentoTests: XCTestCase {
         codex.limitResets = 0; codex.limitResetsExpiring = []
         XCTAssertEqual(resetDetailLines(codex, now: now), ["ไม่มีใบให้ใช้ตอนนี้"])
     }
+
+    /// มุมการ์ดซ้อนเป็นวงกับบานกระจก — เปลี่ยนรัศมีบานแล้วการ์ดต้องตามเอง
+    func testCardCornersAreConcentricWithThePanel() {
+        XCTAssertEqual(GlassMetrics.cardRadius, GlassMetrics.panelRadius - GlassMetrics.inset)
+        XCTAssertEqual(GlassMetrics.cardRadius, 12)
+    }
+
+    /// Antigravity: กลุ่ม Gemini เป็น 5h/7d หลัก กลุ่มอื่นมาเป็นแถบรายกลุ่ม — ต้องเห็นครบ
+    /// และกลุ่มที่ใช้ไปมากที่สุดต้องขึ้นเลขหัว แม้จะไม่ใช่ Gemini
+    func testAntigravityGroupsAllShowAndTheFullestLeads() {
+        var it = UsageItem(group: "Antigravity", label: "Antigravity", window: "5 ชม.")
+        it.pct = 13.2
+        it.weekPct = 4.5
+        it.modelWindows = [ModelWindow(label: "Claude 5h", pct: 61, resetAt: nil, confidence: nil),
+                           ModelWindow(label: "Claude 7d", pct: 20, resetAt: nil, confidence: nil),
+                           ModelWindow(label: "Argon", pct: 0, resetAt: nil, confidence: nil)]
+        XCTAssertEqual(displayableWindows(it).map(\.label), ["5h", "7d", "Claude 5h", "Claude 7d", "Argon"])
+        XCTAssertEqual(headlinePct(it), 61)
+        XCTAssertEqual(headlineWindow(it)?.label, "Claude 5h")
+    }
 }
