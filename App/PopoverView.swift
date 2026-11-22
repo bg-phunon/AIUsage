@@ -42,8 +42,11 @@ extension View {
     /// ปุ่มไอคอนบนหัว popover — กระจกเมื่อเปิดสไตล์ Liquid Glass บน macOS 26
     @ViewBuilder func headerButtonStyle(glass: Bool) -> some View {
         // ไม่มีกรอบ — ผู้ใช้ไม่ชอบปุ่มเป็นกล่อง (2026-11-10) ไอคอนเปล่าพอ
+        // บนบานกระจกใช้สัญลักษณ์ขาวดำแบบ Control Center — สี accent เก็บไว้ให้ของที่ต้องกด
+        // จริงๆ (ปุ่ม ⬇︎ อัปเดต) · ภาพจริง 2026-11-22: ปุ่มฟ้าทั้งแถวทำให้ดูไม่ใช่ของระบบ
         self.buttonStyle(.borderless).font(.system(size: 13, weight: .medium))
-            .frame(width: 26, height: 26).contentShape(Rectangle())
+            .foregroundStyle(glass ? AnyShapeStyle(Color.primary.opacity(0.85)) : AnyShapeStyle(.tint))
+            .frame(width: 28, height: 26).contentShape(Rectangle())
     }
 
     /// ป้ายเม็ดยา (ชื่อแผน) — กระจกย้อมสี provider แทนพื้นทึบจางๆ
@@ -280,7 +283,7 @@ struct PopoverView: View {
             // ไม่มีกล่องรองไอคอน — chrome ยิ่งน้อย กระจกยิ่งเบา
             Image(systemName: "chart.bar.xaxis")
                 .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(model.designStyle.accent)
+                .foregroundStyle(useGlass ? AnyShapeStyle(.secondary) : AnyShapeStyle(model.designStyle.accent))
             VStack(alignment: .leading, spacing: 1) {
                 Text("AI Usage").font(.system(size: 13.5, weight: .semibold))
                 Text("โควตาตามบัญชีและ provider").font(.system(size: 10)).foregroundStyle(.primary.opacity(0.55))
@@ -399,8 +402,8 @@ struct PopoverView: View {
             Image(systemName: icon)
             Text(text).font(.system(size: 11)).lineLimit(2)
             Spacer()
-        }.foregroundStyle(tint).padding(.horizontal, 14).padding(.vertical, 8)
-            .background(tint.opacity(0.12))
+        }.foregroundStyle(tint).padding(.horizontal, useGlass ? 11 : 14).padding(.vertical, useGlass ? 6 : 8)
+            .background(tint.opacity(useGlass ? 0.10 : 0.12))
     }
 
 

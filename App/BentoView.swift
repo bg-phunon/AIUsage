@@ -144,7 +144,7 @@ struct MiniMeter: View {
             }
             .frame(height: 4)
             Text(pctLabel).monospacedDigit().foregroundStyle(.primary.opacity(0.85))
-                .frame(width: 32, alignment: .trailing)
+                .lineLimit(1).fixedSize().frame(minWidth: 32, alignment: .trailing)
             Text(shortCountdown(window?.resetAt, now: now)).frame(width: 20, alignment: .trailing)
         }
         .font(.system(size: 9.5, weight: .medium, design: .rounded))
@@ -244,6 +244,12 @@ struct BentoView: View {
         items.filter { headlinePct($0) != nil && $0.id != hero?.id }
     }
     private var others: [UsageItem] { items.filter { headlinePct($0) == nil } }
+    private static let othersCell = "\u{0}others"
+    /// id ของช่องเล็กเรียงสองคอลัมน์ ช่อง "ถังอื่น" ต่อท้าย
+    private var cellRows: [[String]] {
+        let ids = tiles.map(\.id) + (others.isEmpty ? [] : [Self.othersCell])
+        return stride(from: 0, to: ids.count, by: 2).map { Array(ids[$0..<min($0 + 2, ids.count)]) }
+    }
 
     var body: some View {
         VStack(spacing: 8) {
@@ -253,17 +259,25 @@ struct BentoView: View {
                     .transition(.asymmetric(insertion: .scale(scale: 0.96).combined(with: .opacity),
                                             removal: .opacity))
             }
-            // Grid ไม่ใช่ LazyVGrid — lazy วัดความสูงไม่ครบ popover ที่สูงตามเนื้อหาจะเตี้ยเกิน
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)],
-                      spacing: 8) {
-                ForEach(Array(tiles.enumerated()), id: \.element.id) { index, item in
-                    tile(item, index: index)
-                        .opacity(appeared ? 1 : 0)
-                        .offset(y: appeared ? 0 : 10)
-                        .animation(.spring(response: 0.6, dampingFraction: 0.85)
-                                    .delay(0.05 * Double(index)), value: appeared)
+            // Grid แบบแถวต่อแถว — การ์ดในแถวเดียวกันสูงเท่ากันแบบ Control Center
+            // (LazyVGrid จัดการ์ดเตี้ยไว้กลางแถว เหลือช่องโหว่บนล่าง — ภาพจริง 2026-11-22)
+            Grid(horizontalSpacing: 8, verticalSpacing: 8) {
+                ForEach(Array(cellRows.enumerated()), id: \.offset) { _, row in
+                    GridRow {
+                        ForEach(row, id: \.self) { cell in
+                            if cell == Self.othersCell {
+                                othersTile
+                            } else if let index = tiles.firstIndex(where: { $0.id == cell }) {
+                                tile(tiles[index], index: index)
+                                    .opacity(appeared ? 1 : 0)
+                                    .offset(y: appeared ? 0 : 10)
+                                    .animation(.spring(response: 0.6, dampingFraction: 0.85)
+                                                .delay(0.05 * Double(index)), value: appeared)
+                            }
+                        }
+                        if row.count == 1 { Color.clear.gridCellUnsizedAxes([.horizontal, .vertical]) }
+                    }
                 }
-                if !others.isEmpty { othersTile }
             }
         }
         .animation(.spring(response: 0.5, dampingFraction: 0.86), value: selected)
@@ -364,7 +378,7 @@ struct BentoView: View {
             if detailFor == item.id { resetDetail(item) }
         }
         .padding(.horizontal, 13).padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background { tileShape(radius: 18) }
         .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .onTapGesture { selected = item.id }
@@ -442,7 +456,8 @@ struct BentoView: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 14).padding(.vertical, 12)
-        .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(minHeight: 96)
         .background { tileShape(radius: 20) }
     }
 
@@ -464,7 +479,7 @@ struct BentoView: View {
             Button { prefs.togglePin(item.id) } label: {
                 Image(systemName: prefs.pinned.contains(item.id) ? "pin.fill" : "pin")
                     .font(.system(size: 9.5))
-                    .foregroundStyle(prefs.pinned.contains(item.id) ? Color.accentColor : Color.secondary.opacity(0.6))
+                    .foregroundStyle(prefs.pinned.contains(item.id) ? Color.primary.opacity(0.8) : Color.secondary.opacity(0.5))
                     .frame(width: 16, height: 16).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
