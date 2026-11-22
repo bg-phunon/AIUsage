@@ -7,7 +7,7 @@ on:
 
 jobs:
   test:
-    runs-on: macos-15
+    runs-on: macos-26  # glassEffect (Liquid Glass) ต้องใช้ SDK ของ macOS 26 — macos-15 build ไม่ผ่าน
     steps:
       - uses: actions/checkout@v4
 
