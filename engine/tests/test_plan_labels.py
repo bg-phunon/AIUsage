@@ -80,7 +80,7 @@ class CodexPlanLabelTest(unittest.TestCase):
 
     def test_literal_prolite_spellings(self):
         for raw in ("prolite", "pro_lite", "Pro-Lite"):
-            self.assertEqual(engine.codex_plan_label(raw, codex_cs(300)), "Pro Lite")
+            self.assertEqual(engine.codex_plan_label(raw, codex_cs(300)), "Pro $100")
 
     def test_other_tiers(self):
         self.assertEqual(engine.codex_plan_label("plus", None), "Plus")

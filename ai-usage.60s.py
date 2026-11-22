@@ -2050,7 +2050,9 @@ def codex_plan_label(plan_type, cs):
 
     เคยเดา Pro Lite จากรูปหน้าต่าง (มีแต่ weekly) แต่ผิด: บัญชี Pro $200 จริงก็
     มีแต่ weekly เหมือนกัน (ผู้ใช้ยืนยัน 2026-11-10) รูปหน้าต่างแยกสองแผนไม่ได้
-    จึงเชื่อ planType · "prolite" ที่สะกดมาตรงๆ เท่านั้นที่เป็น Pro Lite
+    จึงเชื่อ planType · "prolite" ที่สะกดมาตรงๆ เท่านั้นที่เป็นแผน $100 — โชว์เป็น
+    "Pro $100" ตามที่ผู้ใช้เรียก (2026-11-22) · "pro" ยังกำกวม (server เคยเรียก prolite
+    ว่า pro) จึงไม่เติมราคา
     """
     if not isinstance(plan_type, str):
         return None
@@ -2058,7 +2060,7 @@ def codex_plan_label(plan_type, cs):
     if not key:
         return None
     if key in ("prolite", "pro lite"):
-        return "Pro Lite"
+        return "Pro $100"
     return {"pro": "Pro", "plus": "Plus", "team": "Team", "enterprise": "Enterprise",
             "free": "Free"}.get(key, key.title())
 
