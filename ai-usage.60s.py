@@ -1763,6 +1763,9 @@ def estimate_muse_pct(anchor_points, series, now, current_mult=1):
 # consume เด็ดขาด — นั่นคือการเผาใบรีเซ็ตของผู้ใช้ทิ้ง
 CODEX_LIVE_TTL = 120
 _codex_forced = False
+# เหตุผลที่ถามครั้งล่าสุดล้ม — fetch คืนแค่ dict/None ตามสัญญาเดิม เหตุผลจึงฝากไว้ตรงนี้
+# ให้ codex_live จดลงแคชต่อ (เคสจริง 2026-11-15: token ตาย ถามล้มเงียบอยู่ 5 วัน)
+_codex_last_error = None
 CODEX_BIN_CANDIDATES = ("/opt/homebrew/bin/codex", "/usr/local/bin/codex")
 CODEX_LIVE_PATH = os.path.join(os.path.dirname(SNAPSHOT_PATH), "codex-live.json")
 
@@ -1776,19 +1779,37 @@ def _codex_bin():
     return shutil.which("codex")
 
 
+def _codex_fail(reason):
+    global _codex_last_error
+    _codex_last_error = " ".join(str(reason).split())[:300] or "fetch_failed"
+    return None
+
+
+def _rpc_error(msg):
+    err = (msg or {}).get("error")
+    if isinstance(err, dict):
+        return err.get("message") or "rpc_error"
+    return None
+
+
 def fetch_codex_rate_limits(timeout=12, binary=None):
-    """account/rateLimits/read ผ่าน `codex app-server` (อ่านอย่างเดียว) — ล้มคืน None"""
+    """account/rateLimits/read ผ่าน `codex app-server` (อ่านอย่างเดียว) — ล้มคืน None
+
+    สาเหตุที่ล้มอยู่ใน _codex_last_error — stderr ถูกทิ้งและเอนจินไม่มี log ของตัวเอง
+    ไม่เก็บข้อความ error ของ RPC ไว้ตรงนี้คือไม่มีอะไรให้สืบเลยว่าเลขหายเพราะอะไร
+    """
     import select
     import subprocess
+    global _codex_last_error
     binary = binary or _codex_bin()
     if not binary:
-        return None
+        return _codex_fail("codex binary not found")
     try:
         proc = subprocess.Popen([binary, "app-server"], stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                 text=True, bufsize=1)
-    except OSError:
-        return None
+    except OSError as exc:
+        return _codex_fail("spawn failed: %s" % exc)
     end = time.time() + timeout
 
     def wait_for(msg_id):
@@ -1811,17 +1832,25 @@ def fetch_codex_rate_limits(timeout=12, binary=None):
         proc.stdin.write(json.dumps({"id": 1, "method": "initialize", "params": {
             "clientInfo": {"name": "aiusage", "version": "1"}}}) + "\n")
         proc.stdin.flush()
-        if not wait_for(1):
-            return None
+        init_reply = wait_for(1)
+        if not init_reply:
+            return _codex_fail("app-server no initialize reply")
+        if _rpc_error(init_reply):
+            return _codex_fail(_rpc_error(init_reply))
         proc.stdin.write(json.dumps({"method": "initialized"}) + "\n")
         proc.stdin.write(json.dumps({"id": 2, "method": "account/rateLimits/read",
                                      "params": {}}) + "\n")
         proc.stdin.flush()
         reply = wait_for(2)
+        if _rpc_error(reply):
+            return _codex_fail(_rpc_error(reply))
         result = (reply or {}).get("result")
-        return result if isinstance(result, dict) else None
-    except (OSError, ValueError):
-        return None
+        if not isinstance(result, dict):
+            return _codex_fail("app-server no result")
+        _codex_last_error = None
+        return result
+    except (OSError, ValueError) as exc:
+        return _codex_fail("%s: %s" % (type(exc).__name__, exc))
     finally:
         try:
             proc.terminate()
@@ -1834,6 +1863,8 @@ def codex_live(fetch=fetch_codex_rate_limits, path=None, clock=time.time):
     """คำตอบล่าสุดของ app-server — ถามใหม่ไม่ถี่กว่า CODEX_LIVE_TTL วินาที
 
     ถามไม่สำเร็จคืน cache เก่า (อายุติดไปใน fetchedAt เลขในล็อกที่ใหม่กว่าจึงยังชนะได้)
+    พร้อมจด lastError/lastErrorAt ลงไฟล์แคชแบบเดียวกับ musetui — รอบเอนจินถัดไปเป็น
+    process ใหม่ ไม่จดลงไฟล์คือสืบไม่ได้เลยว่าแหล่งสดตายเพราะอะไร
     """
     path = path or CODEX_LIVE_PATH
     global _codex_forced
@@ -1848,7 +1879,11 @@ def codex_live(fetch=fetch_codex_rate_limits, path=None, clock=time.time):
         _codex_forced = True
     result = fetch()
     if result is None:
-        return cached if isinstance(cached, dict) else None
+        out = dict(cached) if isinstance(cached, dict) else {}
+        out["lastError"] = _codex_last_error or "fetch_failed"
+        out["lastErrorAt"] = clock()
+        write_json(path, out)
+        return out
     fresh = {"fetchedAt": clock(), "result": result}
     write_json(path, fresh)
     return fresh
@@ -1900,6 +1935,35 @@ def codex_live_plan(live):
     snap = (res.get("rateLimitsByLimitId") or {}).get("codex") or res.get("rateLimits") or {}
     pt = snap.get("planType")
     return pt if isinstance(pt, str) and pt else None
+
+
+def codex_live_fetched_at(live):
+    """เวลาที่ได้คำตอบสดล่าสุด — แคชที่มีแต่ lastError ยังไม่เคยได้คำตอบ คือ None"""
+    if not isinstance(live, dict) or not isinstance(live.get("result"), dict):
+        return None
+    ts = live.get("fetchedAt")
+    if not isinstance(ts, (int, float)) or ts <= 0:
+        return None
+    return datetime.fromtimestamp(ts, timezone.utc)
+
+
+def codex_live_error(live, cs):
+    """แหล่งสดตายอยู่และเลขที่จะโชว์ไม่มีที่มาที่สดกว่านั้น — คืนสาเหตุ ไม่งั้น None
+
+    ล็อกมีเลขใหม่กว่าแคชที่ตาย = เลขบนจอยังมีที่มา ไม่ต้องขึ้นว่าพัง
+    (เคสจริง 2026-11-15: token ตาย 5 วัน จอโชว์เลขเก่าเป็นเลขสดอย่างมั่นใจ)
+    """
+    if not isinstance(live, dict):
+        return None
+    err = live.get("lastError")
+    if not isinstance(err, str) or not err:
+        return None
+    fetched = codex_live_fetched_at(live)
+    for entry in ((cs or {}).get("windows") or {}).values():
+        ts = entry.get("ts") if isinstance(entry, dict) else None
+        if ts is not None and (fetched is None or ts > fetched):
+            return None
+    return err
 
 
 def _codex_has_short_window(cs):
@@ -2082,6 +2146,8 @@ def collect(live_override=None):
                 cs["windows"][slot] = entry
         cf = apply_codex_anchor(codex_fields(cs, now),
                                 parse_codex_anchor(cfg.get("codexAnchor")), now)
+        live_fetched = codex_live_fetched_at(live)
+        live_error = codex_live_error(live, cs)
         live_resets = codex_live_resets(live)
         configured = (live_resets if live_resets is not None
                       else parse_codex_resets(cfg.get("codexLimitResets")))
@@ -2125,6 +2191,11 @@ def collect(live_override=None):
             "severity": cf.get("severity"),
             "weekResetAt": (cf["weekResetAt"].isoformat().replace("+00:00", "Z")
                             if cf["weekResetAt"] else None),
+            # อายุของเลขสดต้องติดไปกับ snapshot ด้วย — ไม่มีช่องนี้ UI แยกเลขสด
+            # กับแคชค้างหลายวันไม่ออก (เคสจริง 2026-11-15: ค้าง 5 วันโดยไม่มีสัญญาณ)
+            "dataFetchedAt": (live_fetched.isoformat().replace("+00:00", "Z")
+                              if live_fetched else None),
+            "error": live_error[:120] if live_error else None,
         }))
 
     muse_cfg = cfg.get("muse")

@@ -94,6 +94,93 @@ class CacheTest(unittest.TestCase):
     def test_missing_binary_is_none_not_a_crash(self):
         self.assertIsNone(engine.fetch_codex_rate_limits(binary="/nonexistent/codex", timeout=1))
 
+    def test_a_failed_ask_records_last_error_but_keeps_the_old_answer(self):
+        # เคสจริง 2026-11-15: token หมดอายุ ถามล้มทุกรอบอยู่ 5 วันโดยไม่มีร่องรอย
+        # ที่ไหนเลยว่าเพราะอะไร — แคชค้างที่ 10 พ.ย. และจอโชว์เลขเก่าอย่างมั่นใจ
+        engine.codex_live(fetch=lambda: RESULT, path=self.path, clock=lambda: FETCHED)
+        engine._codex_last_error = "401 token_expired"
+        got = engine.codex_live(fetch=lambda: None, path=self.path,
+                                clock=lambda: FETCHED + engine.CODEX_LIVE_TTL + 1)
+        self.assertEqual(got["fetchedAt"], FETCHED, "คำตอบเก่าต้องยังอยู่ครบ")
+        self.assertEqual(got["result"], RESULT)
+        self.assertEqual(got["lastError"], "401 token_expired")
+        self.assertEqual(got["lastErrorAt"], FETCHED + engine.CODEX_LIVE_TTL + 1)
+        on_disk = engine.read_json(self.path, None)
+        self.assertEqual(on_disk["lastError"], "401 token_expired",
+                         "error ต้องลงไฟล์ด้วย — รอบถัดไปเป็น process ใหม่")
+
+    def test_success_after_failure_clears_last_error(self):
+        engine.codex_live(fetch=lambda: RESULT, path=self.path, clock=lambda: FETCHED)
+        engine._codex_last_error = "401 token_expired"
+        engine.codex_live(fetch=lambda: None, path=self.path,
+                          clock=lambda: FETCHED + engine.CODEX_LIVE_TTL + 1)
+        later = FETCHED + 2 * engine.CODEX_LIVE_TTL + 2
+        got = engine.codex_live(fetch=lambda: RESULT, path=self.path, clock=lambda: later)
+        self.assertEqual(got["fetchedAt"], later)
+        self.assertNotIn("lastError", got)
+        self.assertNotIn("lastErrorAt", got)
+
+
+class FetchErrorTest(unittest.TestCase):
+    """CLI ตอบ error กลับมา (ไม่ใช่ result) — ข้อความต้องไม่หายไปกับ DEVNULL"""
+
+    def _fake_binary(self, body):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = os.path.join(tmp.name, "codex")
+        with open(path, "w") as f:
+            f.write("#!%s\n%s" % (sys.executable, body))
+        os.chmod(path, 0o755)
+        return path
+
+    def test_rpc_error_message_is_kept(self):
+        fake = self._fake_binary(
+            "import json,sys\n"
+            "for line in sys.stdin:\n"
+            "    m=json.loads(line)\n"
+            "    if m.get('id')==1: print(json.dumps({'id':1,'result':{}}),flush=True)\n"
+            "    elif m.get('id')==2: print(json.dumps({'id':2,'error':{'code':-32603,"
+            "'message':'failed: 401 token_expired'}}),flush=True)\n")
+        engine._codex_last_error = None
+        self.assertIsNone(engine.fetch_codex_rate_limits(binary=fake, timeout=5))
+        self.assertIn("token_expired", engine._codex_last_error or "")
+
+
+class LiveMetaTest(unittest.TestCase):
+    """เมตาของคำตอบสดที่ collect() ต้องส่งต่อไป snapshot"""
+
+    def test_fetched_at_comes_from_the_cache_stamp(self):
+        got = engine.codex_live_fetched_at({"fetchedAt": FETCHED, "result": RESULT})
+        self.assertEqual(got, datetime.fromtimestamp(FETCHED, timezone.utc))
+
+    def test_error_only_cache_has_no_fetched_at(self):
+        self.assertIsNone(engine.codex_live_fetched_at({"lastError": "x", "lastErrorAt": 1}))
+        self.assertIsNone(engine.codex_live_fetched_at(None))
+
+    def test_dead_live_source_surfaces_as_item_error(self):
+        live = {"fetchedAt": FETCHED, "result": RESULT,
+                "lastError": "401 token_expired", "lastErrorAt": FETCHED + 999}
+        stale = {"win": {"used_percent": 100.0, "window_minutes": 10080,
+                         "resets_at": WEEK_END},
+                 "ts": datetime.fromtimestamp(FETCHED, timezone.utc), "seen": []}
+        cs = {"windows": {"primary": stale}}
+        self.assertEqual(engine.codex_live_error(live, cs), "401 token_expired")
+
+    def test_fresher_log_reading_silences_the_error(self):
+        # แหล่งสดตาย แต่ล็อกมีเลขใหม่กว่าแคช — เลขบนจอมีที่มา ไม่ต้องขึ้นว่าพัง
+        live = {"fetchedAt": FETCHED, "result": RESULT,
+                "lastError": "401 token_expired", "lastErrorAt": FETCHED + 999}
+        fresh = {"win": {"used_percent": 3.0, "window_minutes": 10080,
+                         "resets_at": WEEK_END},
+                 "ts": datetime.fromtimestamp(FETCHED + 500, timezone.utc), "seen": []}
+        cs = {"windows": {"primary": fresh}}
+        self.assertIsNone(engine.codex_live_error(live, cs))
+
+    def test_no_error_recorded_means_no_item_error(self):
+        live = {"fetchedAt": FETCHED, "result": RESULT}
+        self.assertIsNone(engine.codex_live_error(live, {"windows": {}}))
+        self.assertIsNone(engine.codex_live_error(None, {"windows": {}}))
+
 
 if __name__ == "__main__":
     unittest.main()
